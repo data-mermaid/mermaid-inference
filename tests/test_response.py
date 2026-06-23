@@ -55,3 +55,9 @@ def test_parse_rejects_unknown_classifier_type():
     bad = _payload() | {"classifier_type": "segmentation"}
     with pytest.raises(ValidationError):
         parse_classify_response(bad)
+
+
+def test_unknown_field_rejected():
+    payload = _payload() | {"bogus": 1}
+    with pytest.raises(ValidationError):
+        parse_classify_response(payload)

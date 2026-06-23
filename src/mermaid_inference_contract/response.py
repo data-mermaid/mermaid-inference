@@ -1,20 +1,26 @@
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 
 class PointScore(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     label: str  # "ba_uuid::gf_uuid" or "ba_uuid" — opaque to the contract
     score: float  # calibrated probability
 
 
 class PointResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     row: int
     col: int
     scores: list[PointScore]  # full per-class list, ordered by score descending
 
 
 class PyspacerResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     classifier_type: Literal["pyspacer"]
     classifier_version: str
     point_results: list[PointResult]
@@ -27,7 +33,7 @@ ClassifyResponse = Annotated[
     Field(discriminator="classifier_type"),
 ]
 
-_response_adapter: TypeAdapter = TypeAdapter(ClassifyResponse)
+_response_adapter: TypeAdapter[PyspacerResponse] = TypeAdapter(ClassifyResponse)
 
 
 def parse_classify_response(data: dict | str | bytes) -> PyspacerResponse:

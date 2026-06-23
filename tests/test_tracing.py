@@ -50,3 +50,13 @@ def test_new_traceparent_is_parseable_and_unique():
 def test_traceparent_model_roundtrips_json():
     tp = parse_traceparent(VALID)
     assert Traceparent.model_validate_json(tp.model_dump_json()) == tp
+
+
+def test_error_message_names_the_field():
+    with pytest.raises(ValueError) as exc:
+        Traceparent(
+            trace_id="4bf92f3577b34da6a3ce929d0e0e4736",
+            parent_id="00f067aa0ba902b7",
+            flags="zz",
+        )
+    assert "flags" in str(exc.value)

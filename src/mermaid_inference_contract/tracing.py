@@ -1,7 +1,7 @@
 import re
 import secrets
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
 _HEX = re.compile(r"\A[0-9a-f]+\Z")
 
@@ -17,6 +17,8 @@ def _check_hex(value: str, length: int, name: str, *, nonzero: bool) -> str:
 class Traceparent(BaseModel):
     """W3C trace-context id: version-trace_id-parent_id-flags."""
 
+    model_config = ConfigDict(extra="forbid")
+
     version: str = "00"
     trace_id: str
     parent_id: str
@@ -24,8 +26,8 @@ class Traceparent(BaseModel):
 
     @field_validator("version", "flags")
     @classmethod
-    def _two_hex(cls, v: str) -> str:
-        return _check_hex(v, 2, "field", nonzero=False)
+    def _two_hex(cls, v: str, info: ValidationInfo) -> str:
+        return _check_hex(v, 2, info.field_name, nonzero=False)
 
     @field_validator("trace_id")
     @classmethod

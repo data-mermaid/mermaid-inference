@@ -20,7 +20,7 @@ def test_public_symbols_importable_from_root():
         "new_traceparent",
         "resolve_credentials",
     }
-    assert expected <= set(mic.__all__)
+    assert set(mic.__all__) - {"__version__"} == expected
     for name in expected:
         assert hasattr(mic, name), name
 

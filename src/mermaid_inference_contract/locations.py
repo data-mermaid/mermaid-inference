@@ -1,10 +1,12 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class S3Location(BaseModel):
     """An S3-addressed reference to a payload (image, feature vector, model files).
     The contract passes locations, not bytes. Omit the credential fields to use
     the caller's ambient IAM role."""
+
+    model_config = ConfigDict(extra="forbid")
 
     bucket: str
     key: str

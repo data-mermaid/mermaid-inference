@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ErrorCode(str, Enum):
@@ -13,6 +13,8 @@ class ErrorEnvelope(BaseModel):
     validation or processing failures; the worker surfaces it into
     ClassificationStatus. Retry policy for retryable errors lives in the SQS
     job layer, outside this package."""
+
+    model_config = ConfigDict(extra="forbid")
 
     error_code: ErrorCode
     message: str
