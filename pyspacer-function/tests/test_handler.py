@@ -46,6 +46,12 @@ def test_handler_validation_error_on_bad_payload():
     assert out["error_code"] == "validation_error"
 
 
+def test_handler_validation_error_echoes_raw_traceparent():
+    out = handler({"classifier_type": "pyspacer", "traceparent": "tp-val"})  # missing required fields
+    assert out["error_code"] == "validation_error"
+    assert out["traceparent"] == "tp-val"
+
+
 def test_handler_processing_error_carries_traceparent(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCAL_MODELS_DIR", str(tmp_path))  # no version dir present
     monkeypatch.delenv("CONFIG_BUCKET", raising=False)
