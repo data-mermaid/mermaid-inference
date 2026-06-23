@@ -30,3 +30,9 @@ src = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    # fastapi's TestClient import triggers a starlette deprecation about httpx;
+    # third-party, not actionable here. Targeted by message so our own
+    # warnings still surface.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:Warning",
+]
