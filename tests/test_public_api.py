@@ -18,7 +18,6 @@ def test_public_symbols_importable_from_root():
         "parse_traceparent",
         "format_traceparent",
         "new_traceparent",
-        "resolve_credentials",
     }
     assert set(mic.__all__) - {"__version__"} == expected
     for name in expected:

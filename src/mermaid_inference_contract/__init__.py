@@ -1,7 +1,6 @@
 """mermaid-inference-contract: the request/response schema shared by the
 MERMAID API worker and ML inference. Pure pydantic — no torch, no boto3."""
 
-from mermaid_inference_contract.credentials import resolve_credentials
 from mermaid_inference_contract.errors import ErrorCode, ErrorEnvelope
 from mermaid_inference_contract.locations import S3Location
 from mermaid_inference_contract.request import (
@@ -23,7 +22,7 @@ from mermaid_inference_contract.tracing import (
     parse_traceparent,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "S3Location",
@@ -41,6 +40,5 @@ __all__ = [
     "parse_traceparent",
     "format_traceparent",
     "new_traceparent",
-    "resolve_credentials",
     "__version__",
 ]
