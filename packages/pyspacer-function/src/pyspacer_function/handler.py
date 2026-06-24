@@ -18,10 +18,11 @@ from mermaid_inference_contract import (
     parse_classify_request,
 )
 
-from pyspacer_function.config import num_threads
+from pyspacer_function.config import image_version, num_threads
 from pyspacer_function.resolver import get_resolver
 
 logger = logging.getLogger(__name__)
+logger.info("pyspacer-function image version: %s", image_version())
 
 
 def _event_traceparent(event) -> str | None:

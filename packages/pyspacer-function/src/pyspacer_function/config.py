@@ -16,3 +16,11 @@ def local_models_dir() -> str | None:
 def num_threads() -> int:
     """Torch CPU threads: the configured vCPU count, else detected cores."""
     return int(os.environ.get("INFERENCE_NUM_THREADS") or 0) or (os.cpu_count() or 1)
+
+
+def image_version() -> str:
+    """Function image version baked at build time (mermaid-inference semver).
+
+    Logged on cold start so any CloudWatch log line is traceable to a build.
+    """
+    return os.environ.get("INFERENCE_IMAGE_VERSION") or "unknown"
