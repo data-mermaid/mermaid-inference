@@ -1,7 +1,6 @@
 # pyspacer-function
 
-The pyspacer classifier inference function — the classifier **compute lane**
-(see root `docs/adr/0001`). Validates a `PyspacerRequest`, lazily imports the
+The pyspacer classifier inference function — the classifier **compute lane**. Validates a `PyspacerRequest`, lazily imports the
 torch/pyspacer backend, runs EfficientNet extraction + the portable TorchScript
 head, and returns a `PyspacerResponse`. Deployed as a Lambda container image
 (provisioning lives in mermaid-api's CDK, issue #53).

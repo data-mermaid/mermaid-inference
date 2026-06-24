@@ -2,6 +2,7 @@
 contract + the (torch-free) resolver/config — the torch/pyspacer backend and
 the classify core are imported lazily inside handler() so the multi-second
 import stays out of Lambda's 10 s INIT phase."""
+import logging
 import os
 
 # /tmp is the only writable path on Lambda's read-only filesystem.
@@ -19,6 +20,8 @@ from mermaid_inference_contract import (
 
 from pyspacer_function.config import num_threads
 from pyspacer_function.resolver import get_resolver
+
+logger = logging.getLogger(__name__)
 
 
 def _event_traceparent(event) -> str | None:
@@ -56,6 +59,9 @@ def handler(event, context=None) -> dict:
             traceparent=req.traceparent,
         ).model_dump(mode="json")
     except Exception as exc:  # noqa: BLE001 — surface as a processing-error envelope
+        logger.exception(
+            "classify failed (classifier_version=%s)", req.classifier_version
+        )
         return ErrorEnvelope(
             error_code=ErrorCode.PROCESSING_ERROR,
             message=str(exc),
