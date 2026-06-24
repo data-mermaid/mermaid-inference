@@ -4,6 +4,9 @@
 # and install torch from the CPU index.
 FROM --platform=linux/arm64 public.ecr.aws/lambda/python:3.12
 
+ARG MERMAID_CLASSIFIER_REF=main
+ARG IMAGE_VERSION=dev
+
 # Heavy, stable layers first -> lazy container loading pulls fewer bytes on cold start.
 RUN pip install --no-cache-dir torch==2.8.0 torchvision==0.23.0
 
@@ -11,7 +14,7 @@ RUN pip install --no-cache-dir torch==2.8.0 torchvision==0.23.0
 # numpy, boto3) + the load_predictor graph loader. Pinned by git tag; bump the
 # tag here and rebuild when shipping a new classifier/library version.
 RUN pip install --no-cache-dir \
-    "mermaid-classifier[inference] @ git+https://github.com/data-mermaid/mermaid-classifier@<TAG>"
+    "mermaid-classifier[inference] @ git+https://github.com/data-mermaid/mermaid-classifier@${MERMAID_CLASSIFIER_REF}"
 
 # FastAPI/uvicorn are only used by the local-dev harness, but cheap to include.
 RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn>=0.29"
@@ -23,7 +26,8 @@ COPY . /build
 RUN pip install --no-cache-dir --no-deps /build/packages/mermaid-inference-contract \
     && pip install --no-cache-dir --no-deps /build/packages/pyspacer-function
 
-ENV SPACER_EXTRACTORS_CACHE_DIR=/tmp \
+ENV INFERENCE_IMAGE_VERSION=${IMAGE_VERSION} \
+    SPACER_EXTRACTORS_CACHE_DIR=/tmp \
     TORCH_HOME=/tmp \
     HOME=/tmp \
     MPLCONFIGDIR=/tmp
