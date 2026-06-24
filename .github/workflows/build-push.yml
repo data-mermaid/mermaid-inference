@@ -1,0 +1,51 @@
+# mermaid-inference/.github/workflows/build-push.yml
+name: Build and push inference image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-push:
+    runs-on: ubuntu-24.04-arm  # native arm64 build (image is FROM linux/arm64)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image version from root pyproject
+        id: version
+        run: |
+          V=$(grep -E '^version\s*=' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Image version: $V"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/mermaid-inference-image-push-role
+          aws-region: us-east-1
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          VERSION: ${{ steps.version.outputs.version }}
+          MC_REF: ${{ vars.MERMAID_CLASSIFIER_REF }}
+        run: |
+          REPO="$REGISTRY/mermaid-inference-pyspacer"
+          docker build \
+            -f packages/pyspacer-function/Dockerfile \
+            --build-arg MERMAID_CLASSIFIER_REF="$MC_REF" \
+            --build-arg IMAGE_VERSION="$VERSION" \
+            -t "$REPO:$VERSION" \
+            -t "$REPO:${GITHUB_SHA}" \
+            .
+          # Immutable repo: pushing an existing :<version> fails — bump the
+          # version in pyproject.toml to release a new function image.
+          docker push "$REPO:$VERSION"
+          docker push "$REPO:${GITHUB_SHA}"

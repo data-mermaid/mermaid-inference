@@ -70,3 +70,12 @@ Run the two suites as **separate invocations**, not in one `pytest` process: the
 function pulls torch, and torch cannot initialise twice in a single process, so
 collecting both trees at once fails by design. Bare `uv run pytest` at the repo
 root is scoped to the contract tests.
+
+## CI / image publishing
+
+The `.github/workflows/build-push.yml` workflow builds and pushes the `pyspacer-function` Lambda image to ECR (`mermaid-inference-pyspacer`) on push to `main` and on version tags (`v*`). It requires two GitHub repo configs:
+
+- **Variable** `MERMAID_CLASSIFIER_REF`: the git tag of `mermaid-classifier` that the image pins (passed to the Dockerfile as `MERMAID_CLASSIFIER_REF` build arg).
+- **Secret** `AWS_ACCOUNT_ID`: the AWS account ID for OIDC role assumption (assumes `mermaid-inference-image-push-role`).
+
+The workflow pushes immutable semver (`:0.2.0`) and SHA (`:abc1234`) tags to ECR. To release a new image, bump the `version` field in the root `pyproject.toml`.
