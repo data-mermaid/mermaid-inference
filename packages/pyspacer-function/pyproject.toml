@@ -19,7 +19,7 @@ dev = ["pytest>=8", "httpx>=0.27"]
 
 [tool.uv.sources]
 mermaid-inference-contract = { workspace = true }
-mermaid-classifier = { path = "../../mermaid-classifier", editable = true }
+mermaid-classifier = { path = "../../../mermaid-classifier", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyspacer_function"]

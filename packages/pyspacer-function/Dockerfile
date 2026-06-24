@@ -16,11 +16,12 @@ RUN pip install --no-cache-dir \
 # FastAPI/uvicorn are only used by the local-dev harness, but cheap to include.
 RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn>=0.29"
 
-# Contract (repo root) + function package, installed from the build context.
+# Contract + function packages, installed from the build context (the repo root
+# is a virtual workspace umbrella and is not installable itself).
 # --no-deps: torch/pyspacer/fastapi are already present from the layers above.
 COPY . /build
-RUN pip install --no-cache-dir --no-deps /build \
-    && pip install --no-cache-dir --no-deps /build/pyspacer-function
+RUN pip install --no-cache-dir --no-deps /build/packages/mermaid-inference-contract \
+    && pip install --no-cache-dir --no-deps /build/packages/pyspacer-function
 
 ENV SPACER_EXTRACTORS_CACHE_DIR=/tmp \
     TORCH_HOME=/tmp \

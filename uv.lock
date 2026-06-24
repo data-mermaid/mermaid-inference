@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 [manifest]
 members = [
     "mermaid-inference-contract",
+    "mermaid-inference-workspace",
     "pyspacer-function",
 ]
 
@@ -319,7 +320,7 @@ provides-extras = ["inference", "training", "jupyterlab"]
 [[package]]
 name = "mermaid-inference-contract"
 version = "0.2.0"
-source = { editable = "." }
+source = { editable = "packages/mermaid-inference-contract" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -335,6 +336,27 @@ requires-dist = [{ name = "pydantic", specifier = ">=2" }]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
+name = "mermaid-inference-workspace"
+version = "0"
+source = { virtual = "." }
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.6" },
 ]
@@ -752,7 +774,7 @@ wheels = [
 [[package]]
 name = "pyspacer-function"
 version = "0.1.0"
-source = { editable = "pyspacer-function" }
+source = { editable = "packages/pyspacer-function" }
 dependencies = [
     { name = "fastapi" },
     { name = "mermaid-classifier", extra = ["inference"] },
@@ -770,7 +792,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.110" },
     { name = "mermaid-classifier", extras = ["inference"], editable = "../mermaid-classifier" },
-    { name = "mermaid-inference-contract", editable = "." },
+    { name = "mermaid-inference-contract", editable = "packages/mermaid-inference-contract" },
     { name = "uvicorn", specifier = ">=0.29" },
 ]
 

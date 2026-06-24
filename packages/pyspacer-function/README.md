@@ -9,7 +9,7 @@ head, and returns a `PyspacerResponse`. Deployed as a Lambda container image
 ## Run the tests
 
 ```bash
-uv run pytest pyspacer-function/tests/ -v
+uv run pytest packages/pyspacer-function/tests/ -v
 ```
 
 ## Run the local-dev HTTP harness
@@ -44,5 +44,5 @@ the function fetches `s3://$CONFIG_BUCKET/classifier/<version>/*` into
 From the repo root (set the `mermaid-classifier` tag in the Dockerfile first):
 
 ```bash
-docker build -f pyspacer-function/Dockerfile -t pyspacer-inference:dev .
+docker build -f packages/pyspacer-function/Dockerfile -t pyspacer-inference:dev .
 ```
