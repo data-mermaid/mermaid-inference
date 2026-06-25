@@ -342,7 +342,7 @@ dev = [
 
 [[package]]
 name = "mermaid-inference-workspace"
-version = "0"
+version = "0.2.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]

@@ -1,6 +1,6 @@
 # arm64 (Graviton) builds natively on Apple-Silicon dev machines; torch's
 # aarch64 wheels are CPU-only. For x86_64: change the platform to
-# linux/amd64, set Architectures: [x86_64] in the CDK function (issue #53),
+# linux/amd64, set Architectures: [x86_64] in the CDK function (mermaid-classifier issue #53),
 # and install torch from the CPU index.
 FROM --platform=linux/arm64 public.ecr.aws/lambda/python:3.12
 
