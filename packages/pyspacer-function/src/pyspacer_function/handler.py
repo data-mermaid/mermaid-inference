@@ -60,8 +60,13 @@ def handler(event, context=None) -> dict:
             traceparent=req.traceparent,
         ).model_dump(mode="json")
     except Exception as exc:  # noqa: BLE001 — surface as a processing-error envelope
+        # Stable marker for the CloudWatch Logs metric filter + alarm: these
+        # failures are RETURNED as PROCESSING_ERROR envelopes, so they never
+        # increment the Lambda Errors metric. Keep the token in sync with the
+        # MetricFilter pattern in mermaid-api InferenceStack.
         logger.exception(
-            "classify failed (classifier_version=%s)", req.classifier_version
+            "[classify.processing_error] classify failed (classifier_version=%s)",
+            req.classifier_version,
         )
         return ErrorEnvelope(
             error_code=ErrorCode.PROCESSING_ERROR,
