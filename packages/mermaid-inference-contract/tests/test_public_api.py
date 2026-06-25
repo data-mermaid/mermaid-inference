@@ -28,7 +28,6 @@ def test_can_build_request_via_root_import():
     req = mic.parse_classify_request(
         {
             "classifier_type": "pyspacer",
-            "classifier_version": "v4",
             "image": {"bucket": "b", "key": "k"},
             "points": [[1, 2]],
         }
