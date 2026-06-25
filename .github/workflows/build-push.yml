@@ -2,9 +2,17 @@
 name: Build and push inference image
 
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      model_version:
+        description: "Model version this image serves, e.g. v2"
+        required: true
+      build:
+        description: "Serving build number under this model version, e.g. 1"
+        required: true
+      classifier_ref:
+        description: "Exact mermaid-classifier git tag/sha matching the model's training"
+        required: true
 
 permissions:
   id-token: write
@@ -16,12 +24,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve image version from root pyproject
-        id: version
+      - name: Compute image tag
+        id: tag
+        env:
+          MV: ${{ inputs.model_version }}
+          BK: ${{ inputs.build }}
         run: |
-          V=$(grep -E '^version\s*=' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "Image version: $V"
+          [[ "$MV" =~ ^v[0-9]+$ ]] || { echo "model_version must be vN"; exit 1; }
+          [[ "$BK" =~ ^[0-9]+$ ]] || { echo "build must be an integer"; exit 1; }
+          echo "image_tag=${MV}-${BK}" >> "$GITHUB_OUTPUT"
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -34,18 +45,16 @@ jobs:
       - name: Build and push
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
-          VERSION: ${{ steps.version.outputs.version }}
-          MC_REF: ${{ vars.MERMAID_CLASSIFIER_REF }}
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+          MODEL_VERSION: ${{ inputs.model_version }}
+          MC_REF: ${{ inputs.classifier_ref }}
         run: |
           REPO="$REGISTRY/mermaid-inference-pyspacer"
           docker build \
             -f packages/pyspacer-function/Dockerfile \
             --build-arg MERMAID_CLASSIFIER_REF="$MC_REF" \
-            --build-arg IMAGE_VERSION="$VERSION" \
-            -t "$REPO:$VERSION" \
-            -t "$REPO:${GITHUB_SHA}" \
+            --build-arg CLASSIFIER_VERSION="$MODEL_VERSION" \
+            -t "$REPO:$IMAGE_TAG" \
             .
-          # Immutable repo: pushing an existing :<version> fails — bump the
-          # version in pyproject.toml to release a new function image.
-          docker push "$REPO:$VERSION"
-          docker push "$REPO:${GITHUB_SHA}"
+          # Immutable repo: pushing an existing vN-K fails — bump the build number.
+          docker push "$REPO:$IMAGE_TAG"

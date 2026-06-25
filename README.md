@@ -73,9 +73,12 @@ root is scoped to the contract tests.
 
 ## CI / image publishing
 
-The `.github/workflows/build-push.yml` workflow builds and pushes the `pyspacer-function` Lambda image to ECR (`mermaid-inference-pyspacer`) on push to `main` and on version tags (`v*`). It requires two GitHub repo configs:
+The `.github/workflows/build-push.yml` workflow is a manual `workflow_dispatch` that builds and pushes the `pyspacer-function` Lambda image to ECR (`mermaid-inference-pyspacer`). It takes three inputs:
 
-- **Variable** `MERMAID_CLASSIFIER_REF`: the git tag of `mermaid-classifier` that the image pins (passed to the Dockerfile as `MERMAID_CLASSIFIER_REF` build arg).
+- **`model_version`** — the model version this image serves, e.g. `v2` (must match `^v[0-9]+$`).
+- **`build`** — the serving build number under that model version, e.g. `1` (must be an integer).
+- **`classifier_ref`** — the exact `mermaid-classifier` git tag or SHA that matches the model's training.
+
+The workflow pushes a single immutable tag `vN-K` (e.g. `v2-1`) to ECR. Bump the build number for a code or library fix; bump the model version for a retrain. Requires one GitHub repo secret:
+
 - **Secret** `AWS_ACCOUNT_ID`: the AWS account ID for OIDC role assumption (assumes `mermaid-inference-image-push-role`).
-
-The workflow pushes immutable semver (`:0.2.0`) and SHA (`:abc1234`) tags to ECR. To release a new image, bump the `version` field in the root `pyproject.toml`.
