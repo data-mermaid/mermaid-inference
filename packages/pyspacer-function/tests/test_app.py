@@ -7,6 +7,7 @@ def test_post_classify_returns_response(monkeypatch, tmp_path, make_model_dir):
     root = tmp_path / "models"
     make_model_dir(root / "v1")
     monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v1")
     monkeypatch.delenv("CONFIG_BUCKET", raising=False)
     monkeypatch.setattr(
         classify_mod,
@@ -24,7 +25,6 @@ def test_post_classify_returns_response(monkeypatch, tmp_path, make_model_dir):
         "/classify",
         json={
             "classifier_type": "pyspacer",
-            "classifier_version": "v1",
             "image": {"bucket": "b", "key": "k.jpg"},
             "points": [[1, 1]],
         },

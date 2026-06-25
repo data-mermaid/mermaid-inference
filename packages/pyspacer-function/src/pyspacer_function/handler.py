@@ -18,11 +18,10 @@ from mermaid_inference_contract import (
     parse_classify_request,
 )
 
-from pyspacer_function.config import image_version, num_threads
+from pyspacer_function.config import classifier_version, num_threads
 from pyspacer_function.resolver import get_resolver
 
 logger = logging.getLogger(__name__)
-logger.info("pyspacer-function image version: %s", image_version())
 
 
 def _event_traceparent(event) -> str | None:
@@ -37,6 +36,7 @@ def handler(event, context=None) -> dict:
             error_code=ErrorCode.VALIDATION_ERROR,
             message=str(exc),
             classifier_type="pyspacer",
+            classifier_version=os.environ.get("CLASSIFIER_VERSION"),
             traceparent=_event_traceparent(event),
         ).model_dump(mode="json")
 
@@ -47,14 +47,17 @@ def handler(event, context=None) -> dict:
         from spacer.data_classes import DataLocation
 
         from pyspacer_function.classify import classify
+        from pyspacer_function.compat import check_compatibility
 
-        files = get_resolver().resolve(req.classifier_version)
+        version = classifier_version()
+        files = get_resolver().resolve(version)
+        check_compatibility(files.model_json)
         image_loc = DataLocation("s3", key=req.image.key, bucket_name=req.image.bucket)
         results, valid = classify(image_loc, files, [tuple(p) for p in req.points])
 
         return PyspacerResponse(
             classifier_type="pyspacer",
-            classifier_version=req.classifier_version,
+            classifier_version=version,
             point_results=results,
             valid_rowcol=valid,
             traceparent=req.traceparent,
@@ -64,14 +67,11 @@ def handler(event, context=None) -> dict:
         # failures are RETURNED as PROCESSING_ERROR envelopes, so they never
         # increment the Lambda Errors metric. Keep the token in sync with the
         # MetricFilter pattern in mermaid-api InferenceStack.
-        logger.exception(
-            "[classify.processing_error] classify failed (classifier_version=%s)",
-            req.classifier_version,
-        )
+        logger.exception("[classify.processing_error] classify failed")
         return ErrorEnvelope(
             error_code=ErrorCode.PROCESSING_ERROR,
             message=str(exc),
             classifier_type="pyspacer",
-            classifier_version=req.classifier_version,
+            classifier_version=os.environ.get("CLASSIFIER_VERSION"),
             traceparent=req.traceparent,
         ).model_dump(mode="json")

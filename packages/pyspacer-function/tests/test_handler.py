@@ -7,10 +7,9 @@ from mermaid_inference_contract import PointResult, PointScore
 from pyspacer_function.handler import handler
 
 
-def _event(version="v1", traceparent="tp-1"):
+def _event(traceparent="tp-1"):
     return {
         "classifier_type": "pyspacer",
-        "classifier_version": version,
         "image": {"bucket": "b", "key": "k.jpg"},
         "points": [[10, 10]],
         "traceparent": traceparent,
@@ -19,8 +18,9 @@ def _event(version="v1", traceparent="tp-1"):
 
 def test_handler_returns_pyspacer_response(monkeypatch, tmp_path, make_model_dir):
     root = tmp_path / "models"
-    make_model_dir(root / "v1")
+    make_model_dir(root / "v2")  # fixture writes a model.json whose trained_with matches runtime
     monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
     monkeypatch.delenv("CONFIG_BUCKET", raising=False)
 
     # Avoid real extraction/S3: stub the classify core (imported lazily in handler).
@@ -35,7 +35,7 @@ def test_handler_returns_pyspacer_response(monkeypatch, tmp_path, make_model_dir
 
     out = handler(_event())
     assert out["classifier_type"] == "pyspacer"
-    assert out["classifier_version"] == "v1"
+    assert out["classifier_version"] == "v2"  # provenance from deploy config
     assert out["valid_rowcol"] is True
     assert out["traceparent"] == "tp-1"
     assert out["point_results"][0]["scores"][0]["label"] == "a::"
@@ -54,8 +54,9 @@ def test_handler_validation_error_echoes_raw_traceparent():
 
 def test_handler_processing_error_carries_traceparent(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCAL_MODELS_DIR", str(tmp_path))  # no version dir present
+    monkeypatch.setenv("CLASSIFIER_VERSION", "missing")
     monkeypatch.delenv("CONFIG_BUCKET", raising=False)
-    out = handler(_event(version="missing", traceparent="tp-2"))
+    out = handler(_event(traceparent="tp-2"))
     assert out["error_code"] == "processing_error"
     assert out["traceparent"] == "tp-2"
     assert out["classifier_version"] == "missing"
@@ -64,9 +65,10 @@ def test_handler_processing_error_carries_traceparent(monkeypatch, tmp_path):
 def test_handler_processing_error_logs_metric_filter_marker(monkeypatch, tmp_path, caplog):
     # The marker drives the CloudWatch Logs metric filter + alarm in mermaid-api.
     monkeypatch.setenv("LOCAL_MODELS_DIR", str(tmp_path))  # no version dir present
+    monkeypatch.setenv("CLASSIFIER_VERSION", "missing")
     monkeypatch.delenv("CONFIG_BUCKET", raising=False)
     with caplog.at_level("ERROR"):
-        out = handler(_event(version="missing"))
+        out = handler(_event())
     assert out["error_code"] == "processing_error"
     assert "[classify.processing_error]" in caplog.text
 
