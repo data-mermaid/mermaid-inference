@@ -4,8 +4,10 @@
 # and install torch from the CPU index.
 FROM --platform=linux/arm64 public.ecr.aws/lambda/python:3.12
 
+# MERMAID_CLASSIFIER_REF must be an EXACT tag/sha for release builds (the build-push
+# workflow passes one); the `main` default is for local dev only.
 ARG MERMAID_CLASSIFIER_REF=main
-ARG IMAGE_VERSION=dev
+ARG CLASSIFIER_VERSION=dev
 
 # Heavy, stable layers first -> lazy container loading pulls fewer bytes on cold start.
 RUN pip install --no-cache-dir torch==2.8.0 torchvision==0.23.0
@@ -26,7 +28,7 @@ COPY . /build
 RUN pip install --no-cache-dir --no-deps /build/packages/mermaid-inference-contract \
     && pip install --no-cache-dir --no-deps /build/packages/pyspacer-function
 
-ENV INFERENCE_IMAGE_VERSION=${IMAGE_VERSION} \
+ENV CLASSIFIER_VERSION=${CLASSIFIER_VERSION} \
     SPACER_EXTRACTORS_CACHE_DIR=/tmp \
     TORCH_HOME=/tmp \
     HOME=/tmp \
