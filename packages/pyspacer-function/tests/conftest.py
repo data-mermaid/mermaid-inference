@@ -2,6 +2,7 @@
 extractor — so classify/handler tests need neither real EfficientNet weights
 nor S3."""
 import json
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 import pytest
@@ -41,7 +42,11 @@ def write_model_files(dest: Path) -> ModelFiles:
                 "classes": _CLASSES,
                 "input_dim": _IN_DIM,
                 "config": {"patch_size": 224},
-                "trained_with": {"torch": torch.__version__, "sklearn": "1.5.2"},
+                "trained_with": {
+                    "torch": torch.__version__,
+                    "sklearn": _pkg_version("scikit-learn"),
+                    "pyspacer": _pkg_version("pyspacer"),
+                },
             }
         )
     )

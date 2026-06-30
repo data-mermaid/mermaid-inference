@@ -1,6 +1,6 @@
 [project]
 name = "mermaid-inference-workspace"
-version = "0"
+version = "0.2.0"
 requires-python = ">=3.12"
 
 # Virtual workspace root: an umbrella that ties the member packages together for

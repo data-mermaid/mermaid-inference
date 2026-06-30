@@ -4,7 +4,7 @@ import sys
 
 def test_package_imports():
     mod = importlib.import_module("mermaid_inference_contract")
-    assert mod.__version__ == "0.2.0"
+    assert mod.__version__ == "0.3.0"
 
 
 def test_no_heavy_deps_imported():

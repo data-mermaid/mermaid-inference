@@ -22,7 +22,7 @@ from mermaid_inference_contract.tracing import (
     parse_traceparent,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "S3Location",

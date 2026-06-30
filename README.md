@@ -70,3 +70,15 @@ Run the two suites as **separate invocations**, not in one `pytest` process: the
 function pulls torch, and torch cannot initialise twice in a single process, so
 collecting both trees at once fails by design. Bare `uv run pytest` at the repo
 root is scoped to the contract tests.
+
+## CI / image publishing
+
+The `.github/workflows/build-push.yml` workflow is a manual `workflow_dispatch` that builds and pushes the `pyspacer-function` Lambda image to ECR (`mermaid-inference-pyspacer`). It takes three inputs:
+
+- **`model_version`** — the model version this image serves, e.g. `v2` (must match `^v[0-9]+$`).
+- **`build`** — the serving build number under that model version, e.g. `1` (must be an integer).
+- **`classifier_ref`** — the exact `mermaid-classifier` git tag or SHA that matches the model's training.
+
+The workflow pushes a single immutable tag `vN-K` (e.g. `v2-1`) to ECR. Bump the build number for a code or library fix; bump the model version for a retrain. Requires one GitHub repo secret:
+
+- **Secret** `AWS_ACCOUNT_ID`: the AWS account ID for OIDC role assumption (assumes `mermaid-inference-image-push-role`).

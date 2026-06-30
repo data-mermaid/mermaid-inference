@@ -8,7 +8,6 @@ from mermaid_inference_contract.request import PyspacerRequest, parse_classify_r
 def _payload():
     return {
         "classifier_type": "pyspacer",
-        "classifier_version": "v4",
         "image": {"bucket": "imgs", "key": "a.png"},
         "points": [[100, 150], [200, 300]],
     }
@@ -17,7 +16,6 @@ def _payload():
 def test_defaults_feature_vector_and_traceparent_none():
     req = PyspacerRequest(
         classifier_type="pyspacer",
-        classifier_version="v4",
         image=S3Location(bucket="imgs", key="a.png"),
         points=[(1, 2)],
     )
@@ -38,7 +36,6 @@ def test_roundtrips_through_json():
 def test_parse_routes_pyspacer():
     req = parse_classify_request(_payload())
     assert isinstance(req, PyspacerRequest)
-    assert req.classifier_version == "v4"
 
 
 def test_parse_accepts_json_string():
@@ -60,3 +57,19 @@ def test_unknown_field_rejected():
         parse_classify_request(payload)
     with pytest.raises(ValidationError):
         PyspacerRequest.model_validate(payload)
+
+
+def test_request_has_no_classifier_version():
+    from pydantic import ValidationError
+
+    base = {
+        "classifier_type": "pyspacer",
+        "image": {"bucket": "b", "key": "k.jpg"},
+        "points": [[10, 10]],
+    }
+    # Parses fine without a model selector.
+    req = parse_classify_request(base)
+    assert not hasattr(req, "classifier_version")
+    # And rejects it if supplied (extra="forbid").
+    with pytest.raises(ValidationError):
+        parse_classify_request({**base, "classifier_version": "v2"})

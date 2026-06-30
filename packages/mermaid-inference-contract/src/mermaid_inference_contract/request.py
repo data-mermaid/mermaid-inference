@@ -9,7 +9,6 @@ class PyspacerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     classifier_type: Literal["pyspacer"]  # discriminator + lane key
-    classifier_version: str  # the ONLY model selector the API sends
     image: S3Location
     points: list[tuple[int, int]]  # (row, col) pairs
     feature_vector_output: S3Location | None = None  # in contract; None this round

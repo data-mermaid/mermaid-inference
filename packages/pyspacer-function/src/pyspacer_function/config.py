@@ -16,3 +16,16 @@ def local_models_dir() -> str | None:
 def num_threads() -> int:
     """Torch CPU threads: the configured vCPU count, else detected cores."""
     return int(os.environ.get("INFERENCE_NUM_THREADS") or 0) or (os.cpu_count() or 1)
+
+
+def classifier_version() -> str:
+    """The model version this function is deployed to serve (baked into the
+    image at build as CLASSIFIER_VERSION). Required — the function resolves
+    classifier/<version>/ from S3 and cannot run without it."""
+    version = os.environ.get("CLASSIFIER_VERSION")
+    if not version:
+        raise RuntimeError(
+            "CLASSIFIER_VERSION is not set: the image must bake the model "
+            "version it serves (build arg CLASSIFIER_VERSION)."
+        )
+    return version

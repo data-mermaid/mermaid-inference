@@ -1,0 +1,60 @@
+# mermaid-inference/.github/workflows/build-push.yml
+name: Build and push inference image
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_version:
+        description: "Model version this image serves, e.g. v2"
+        required: true
+      build:
+        description: "Serving build number under this model version, e.g. 1"
+        required: true
+      classifier_ref:
+        description: "Exact mermaid-classifier git tag/sha matching the model's training"
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-push:
+    runs-on: ubuntu-24.04-arm  # native arm64 build (image is FROM linux/arm64)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        env:
+          MV: ${{ inputs.model_version }}
+          BK: ${{ inputs.build }}
+        run: |
+          [[ "$MV" =~ ^v[0-9]+$ ]] || { echo "model_version must be vN"; exit 1; }
+          [[ "$BK" =~ ^[0-9]+$ ]] || { echo "build must be an integer"; exit 1; }
+          echo "image_tag=${MV}-${BK}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/mermaid-inference-image-push-role
+          aws-region: us-east-1
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+          MODEL_VERSION: ${{ inputs.model_version }}
+          MC_REF: ${{ inputs.classifier_ref }}
+        run: |
+          REPO="$REGISTRY/mermaid-inference-pyspacer"
+          docker build \
+            -f packages/pyspacer-function/Dockerfile \
+            --build-arg MERMAID_CLASSIFIER_REF="$MC_REF" \
+            --build-arg CLASSIFIER_VERSION="$MODEL_VERSION" \
+            -t "$REPO:$IMAGE_TAG" \
+            .
+          # Immutable repo: pushing an existing vN-K fails — bump the build number.
+          docker push "$REPO:$IMAGE_TAG"
