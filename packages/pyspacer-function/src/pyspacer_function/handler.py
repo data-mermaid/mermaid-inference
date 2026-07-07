@@ -30,9 +30,14 @@ def _event_traceparent(event) -> str | None:
 
 
 def handler(event, context=None) -> dict:
+    logger.info("pyspacer classify request", extra={"traceparent": _event_traceparent(event)})
     try:
         req = parse_classify_request(event)
     except ValidationError as exc:
+        logger.info(
+            "pyspacer classify validation_error",
+            extra={"traceparent": _event_traceparent(event)},
+        )
         return ErrorEnvelope(
             error_code=ErrorCode.VALIDATION_ERROR,
             message=str(exc),
@@ -57,6 +62,7 @@ def handler(event, context=None) -> dict:
         image_loc = DataLocation("s3", key=req.image.key, bucket_name=req.image.bucket)
         results, valid = classify(image_loc, files, [tuple(p) for p in req.points])
 
+        logger.info("pyspacer classify success", extra={"traceparent": req.traceparent})
         return PyspacerResponse(
             classifier_type="pyspacer",
             classifier_version=version,
@@ -70,7 +76,9 @@ def handler(event, context=None) -> dict:
         # failures are RETURNED as PROCESSING_ERROR envelopes, so they never
         # increment the Lambda Errors metric. Keep the token in sync with the
         # MetricFilter pattern in mermaid-api InferenceStack.
-        logger.exception("[classify.processing_error] classify failed")
+        logger.exception(
+            "[classify.processing_error] classify failed traceparent=%s", req.traceparent
+        )
         return ErrorEnvelope(
             error_code=ErrorCode.PROCESSING_ERROR,
             message=str(exc),
