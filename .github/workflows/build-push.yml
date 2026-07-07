@@ -16,7 +16,7 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write  # push the vN-K release git tag
 
 jobs:
   build-push:
@@ -58,3 +58,14 @@ jobs:
             .
           # Immutable repo: pushing an existing vN-K fails — bump the build number.
           docker push "$REPO:$IMAGE_TAG"
+
+      - name: Tag the release commit (create-only, immutable)
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "Git tag $IMAGE_TAG already exists — immutable release; bump the build number." >&2
+            exit 1
+          fi
+          git tag -a "$IMAGE_TAG" -m "Inference image + contract release $IMAGE_TAG"
+          git push origin "refs/tags/$IMAGE_TAG"
