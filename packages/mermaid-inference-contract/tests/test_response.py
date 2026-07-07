@@ -61,3 +61,19 @@ def test_unknown_field_rejected():
     payload = _payload() | {"bogus": 1}
     with pytest.raises(ValidationError):
         parse_classify_response(payload)
+
+
+def test_pyspacer_response_carries_optional_contract_version():
+    from mermaid_inference_contract import PyspacerResponse, parse_classify_response
+
+    base = dict(
+        classifier_type="pyspacer",
+        classifier_version="v2",
+        point_results=[],
+        valid_rowcol=True,
+    )
+    # Defaults to None when absent (tolerates an older Lambda).
+    assert PyspacerResponse(**base).contract_version is None
+    # Round-trips when present.
+    r = parse_classify_response({**base, "contract_version": "0.4.0"})
+    assert r.contract_version == "0.4.0"

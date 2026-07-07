@@ -25,3 +25,13 @@ def test_envelope_roundtrips_through_json():
 def test_error_code_serializes_as_string_value():
     env = ErrorEnvelope(error_code=ErrorCode.VALIDATION_ERROR, message="x")
     assert '"validation_error"' in env.model_dump_json()
+
+
+def test_error_envelope_carries_optional_contract_version():
+    from mermaid_inference_contract import ErrorCode, ErrorEnvelope
+
+    env = ErrorEnvelope(error_code=ErrorCode.PROCESSING_ERROR, message="x")
+    assert env.contract_version is None
+    assert ErrorEnvelope(
+        error_code=ErrorCode.PROCESSING_ERROR, message="x", contract_version="0.4.0"
+    ).contract_version == "0.4.0"

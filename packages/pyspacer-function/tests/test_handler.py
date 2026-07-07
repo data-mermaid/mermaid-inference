@@ -81,6 +81,36 @@ def test_handler_validation_error_does_not_log_processing_marker(caplog):
     assert "[classify.processing_error]" not in caplog.text
 
 
+def test_handler_stamps_contract_version(monkeypatch, tmp_path, make_model_dir):
+    import mermaid_inference_contract as contract
+
+    root = tmp_path / "models"
+    make_model_dir(root / "v2")  # fixture writes a model.json whose trained_with matches runtime
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    # Avoid real extraction/S3: stub the classify core (imported lazily in handler).
+    monkeypatch.setattr(
+        classify_mod,
+        "classify",
+        lambda *a, **k: (
+            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
+            True,
+        ),
+    )
+
+    out = handler(_event())
+    assert out["contract_version"] == contract.__version__
+
+
+def test_handler_validation_error_stamps_contract_version():
+    import mermaid_inference_contract as contract
+
+    out = handler({"classifier_type": "pyspacer"})  # missing required fields
+    assert out["contract_version"] == contract.__version__
+
+
 def test_handler_module_has_no_backend_import_at_module_scope():
     tree = ast.parse(Path(handler_mod.__file__).read_text())
     for node in tree.body:  # module-level statements only

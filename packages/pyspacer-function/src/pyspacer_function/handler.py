@@ -15,6 +15,7 @@ from mermaid_inference_contract import (
     ErrorCode,
     ErrorEnvelope,
     PyspacerResponse,
+    __version__ as CONTRACT_VERSION,
     parse_classify_request,
 )
 
@@ -37,6 +38,7 @@ def handler(event, context=None) -> dict:
             message=str(exc),
             classifier_type="pyspacer",
             classifier_version=os.environ.get("CLASSIFIER_VERSION"),
+            contract_version=CONTRACT_VERSION,
             traceparent=_event_traceparent(event),
         ).model_dump(mode="json")
 
@@ -58,6 +60,7 @@ def handler(event, context=None) -> dict:
         return PyspacerResponse(
             classifier_type="pyspacer",
             classifier_version=version,
+            contract_version=CONTRACT_VERSION,
             point_results=results,
             valid_rowcol=valid,
             traceparent=req.traceparent,
@@ -73,5 +76,6 @@ def handler(event, context=None) -> dict:
             message=str(exc),
             classifier_type="pyspacer",
             classifier_version=os.environ.get("CLASSIFIER_VERSION"),
+            contract_version=CONTRACT_VERSION,
             traceparent=req.traceparent,
         ).model_dump(mode="json")

@@ -16,7 +16,7 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write  # push the vN-K release git tag
 
 jobs:
   build-push:
@@ -34,6 +34,18 @@ jobs:
           [[ "$BK" =~ ^[0-9]+$ ]] || { echo "build must be an integer"; exit 1; }
           echo "image_tag=${MV}-${BK}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify release tag is free, or already on this commit (fail fast)
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+        run: |
+          # Lightweight tag -> ls-remote returns the commit it points at.
+          existing=$(git ls-remote --tags origin "refs/tags/$IMAGE_TAG" | awk '{print $1}')
+          if [ -n "$existing" ] && [ "$existing" != "$(git rev-parse HEAD)" ]; then
+            echo "Git tag $IMAGE_TAG already exists on a different commit ($existing) —" >&2
+            echo "immutable release; bump the build number." >&2
+            exit 1
+          fi
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/mermaid-inference-image-push-role
@@ -42,19 +54,38 @@ jobs:
       - uses: aws-actions/amazon-ecr-login@v2
         id: ecr
 
-      - name: Build and push
+      - name: Build image
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
           MODEL_VERSION: ${{ inputs.model_version }}
           MC_REF: ${{ inputs.classifier_ref }}
         run: |
-          REPO="$REGISTRY/mermaid-inference-pyspacer"
           docker build \
             -f packages/pyspacer-function/Dockerfile \
             --build-arg MERMAID_CLASSIFIER_REF="$MC_REF" \
             --build-arg CLASSIFIER_VERSION="$MODEL_VERSION" \
-            -t "$REPO:$IMAGE_TAG" \
+            -t "$REGISTRY/mermaid-inference-pyspacer:$IMAGE_TAG" \
             .
+
+      # Recoverability: push the git tag (reversible) BEFORE the immutable image push.
+      # If the image push fails, a rerun finds the tag already on this commit (the
+      # push below is idempotent) and just retries the image push -- avoiding an
+      # image-without-tag state the immutable ECR repo can't repair.
+      - name: Push release git tag (idempotent, after a successful build)
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+        run: |
+          # Lightweight tag: re-pushing the same tag at the same commit is a no-op
+          # ("Everything up-to-date"); a different commit is rejected. No git identity
+          # is required (only annotated tags need one).
+          git tag "$IMAGE_TAG" 2>/dev/null || true
+          git push origin "refs/tags/$IMAGE_TAG"
+
+      - name: Push image (immutable — last, after the tag exists)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+        run: |
           # Immutable repo: pushing an existing vN-K fails — bump the build number.
-          docker push "$REPO:$IMAGE_TAG"
+          docker push "$REGISTRY/mermaid-inference-pyspacer:$IMAGE_TAG"
