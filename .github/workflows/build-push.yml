@@ -34,6 +34,15 @@ jobs:
           [[ "$BK" =~ ^[0-9]+$ ]] || { echo "build must be an integer"; exit 1; }
           echo "image_tag=${MV}-${BK}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify release tag is available (fail fast before build)
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "Git tag $IMAGE_TAG already exists — immutable release; bump the build number." >&2
+            exit 1
+          fi
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/mermaid-inference-image-push-role
@@ -63,11 +72,8 @@ jobs:
         env:
           IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
         run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/$IMAGE_TAG" >/dev/null 2>&1; then
-            echo "Git tag $IMAGE_TAG already exists — immutable release; bump the build number." >&2
-            exit 1
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$IMAGE_TAG" -m "Inference image + contract release $IMAGE_TAG"
+          # create-only: pushing a tag that already exists on the remote is rejected (no --force)
           git push origin "refs/tags/$IMAGE_TAG"
