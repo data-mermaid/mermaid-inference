@@ -21,4 +21,5 @@ class ErrorEnvelope(BaseModel):
     retryable: bool = False
     classifier_type: str | None = None
     classifier_version: str | None = None
+    contract_version: str | None = None  # mermaid_inference_contract.__version__ of the emitter
     traceparent: str | None = None

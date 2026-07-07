@@ -26,6 +26,7 @@ class PyspacerResponse(BaseModel):
     point_results: list[PointResult]
     valid_rowcol: bool  # from pyspacer ClassifyReturnMsg.valid_rowcol
     traceparent: str | None = None
+    contract_version: str | None = None  # mermaid_inference_contract.__version__ of the emitter
 
 
 ClassifyResponse = Annotated[
