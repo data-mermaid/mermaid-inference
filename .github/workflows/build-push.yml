@@ -67,5 +67,7 @@ jobs:
             echo "Git tag $IMAGE_TAG already exists — immutable release; bump the build number." >&2
             exit 1
           fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$IMAGE_TAG" -m "Inference image + contract release $IMAGE_TAG"
           git push origin "refs/tags/$IMAGE_TAG"
