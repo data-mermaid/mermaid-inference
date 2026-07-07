@@ -68,9 +68,46 @@ def test_handler_processing_error_logs_metric_filter_marker(monkeypatch, tmp_pat
     monkeypatch.setenv("CLASSIFIER_VERSION", "missing")
     monkeypatch.delenv("CONFIG_BUCKET", raising=False)
     with caplog.at_level("ERROR"):
-        out = handler(_event())
+        out = handler(_event(traceparent="tp-marker"))
     assert out["error_code"] == "processing_error"
     assert "[classify.processing_error]" in caplog.text
+    # The marker line must carry the trace id so a processing failure is
+    # joinable to the API worker's log (see inference-traceparent-tracing spec).
+    assert "tp-marker" in caplog.text
+
+
+def test_handler_logs_traceparent_on_success(monkeypatch, tmp_path, make_model_dir, caplog):
+    root = tmp_path / "models"
+    make_model_dir(root / "v2")  # fixture writes a model.json whose trained_with matches runtime
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    monkeypatch.setattr(
+        classify_mod,
+        "classify",
+        lambda *a, **k: (
+            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
+            True,
+        ),
+    )
+
+    with caplog.at_level("INFO"):
+        out = handler(_event(traceparent="tp-success"))
+    assert out["traceparent"] == "tp-success"
+    traceparent_records = [
+        r for r in caplog.records if getattr(r, "traceparent", None) == "tp-success"
+    ]
+    # Expect at least the handler-entry log plus a success-completion log, both
+    # carrying the same trace id via structured `extra`.
+    assert len(traceparent_records) >= 2
+
+
+def test_handler_logs_traceparent_at_entry_on_validation_error(caplog):
+    with caplog.at_level("INFO"):
+        out = handler({"classifier_type": "pyspacer", "traceparent": "tp-val-log"})
+    assert out["error_code"] == "validation_error"
+    assert any(getattr(r, "traceparent", None) == "tp-val-log" for r in caplog.records)
 
 
 def test_handler_validation_error_does_not_log_processing_marker(caplog):
