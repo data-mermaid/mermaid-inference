@@ -36,9 +36,10 @@ from mermaid_inference_contract import parse_classify_request, PyspacerResponse
 req = parse_classify_request(event_body)          # validates + routes on classifier_type
 resp = PyspacerResponse(
     classifier_type="pyspacer",
-    classifier_version=req.classifier_version,
+    classifier_version=classifier_version(),      # from the image's CLASSIFIER_VERSION, not the request
     point_results=[...],
     valid_rowcol=True,
+    traceparent=req.traceparent,
 )
 ```
 
@@ -49,8 +50,8 @@ The pyspacer classifier compute lane. The handler validates a `PyspacerRequest`,
 out of Lambda's INIT phase), runs pyspacer EfficientNet extraction, loads the
 version's `model.pt` head via the shared `load_predictor()`, runs
 `predict_proba`, and returns a `PyspacerResponse`. Extractor weights +
-`model.pt`/`model.json` are resolved from `classifier_version` alone and cached
-in `/tmp` keyed by version. A thin FastAPI wrapper exposes the same handler for
+`model.pt`/`model.json` are resolved from the image's deploy-pinned
+`CLASSIFIER_VERSION` and cached in `/tmp` keyed by version. A thin FastAPI wrapper exposes the same handler for
 local-dev and manual checks.
 
 It depends on `mermaid-classifier[inference]` (the portable-artifact loader) and
