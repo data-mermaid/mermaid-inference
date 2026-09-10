@@ -3,8 +3,7 @@
 The contract between the MERMAID API and ML inference — a pure-pydantic
 request/response schema plus the inference functions that honour it. The
 framework is the contract, not the compute: the schema is durable and
-independent of where inference code runs (see the root
-`docs/adr/0001-per-model-compute-lanes-via-lambda.md`).
+independent of where inference code runs.
 
 The repo is a uv workspace: a virtual umbrella root with the shipped packages
 under `packages/`.
