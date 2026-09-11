@@ -17,7 +17,7 @@ _FILENAMES = {
 
 
 def _paths_in(directory: Path, model_format: str) -> tuple[Path, ...]:
-    """The format's files under directory, in the dataclass's field order."""
+    """The format's files under directory, named per _FILENAMES."""
     return tuple(directory / name for name in _FILENAMES[model_format])
 
 
@@ -39,14 +39,17 @@ class ModelFiles:
 @dataclass(frozen=True)
 class LegacyModelFiles:
     """The Beta artifact pair: extractor weights plus a pickled
-    CalibratedClassifierCV. Field order matches _FILENAMES["legacy"]."""
+    CalibratedClassifierCV."""
 
     efficientnet_pt: Path
     classifier_pkl: Path
 
     @classmethod
     def in_dir(cls, directory: Path) -> "LegacyModelFiles":
-        return cls(*_paths_in(directory, "legacy"))
+        return cls(
+            efficientnet_pt=directory / "efficientnet_weights.pt",
+            classifier_pkl=directory / "classifier.pkl",
+        )
 
 
 _MODEL_FILES = {"graph": ModelFiles, "legacy": LegacyModelFiles}
