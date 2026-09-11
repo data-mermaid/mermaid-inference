@@ -1,0 +1,26 @@
+# Runtime pins for the legacy (Beta) serving image: both the image's install
+# manifest and the runtime assertion. check_legacy_pins() parses this file and
+# refuses to serve when an installed version differs, which is the legacy
+# format's stand-in for the graph format's model.json "trained_with" gate.
+# One file, so the install and the check cannot drift.
+#
+# Recapture (versions drift with every prod API image rebuild — mermaid-api
+# pins no torch/torchvision/numpy): ECS exec into a running task of the prod
+# API service (the prod-mermaid-api-django stack's ApiService, which has ECS
+# exec enabled) and run
+#   pip freeze | grep -iE '^(pyspacer|scikit-learn|scipy|torch|torchvision|numpy|Pillow)=='
+# Captured 2026-09-11 from x86_64/Python 3.13; the Lambda that runs these is
+# arm64/Python 3.12. These pin versions, not wheels — the pre-release
+# score-equivalence gate is what measures the difference.
+#
+# Lifetime: this freeze is retired when the Beta lane is, i.e. when the graph
+# format supersedes it. Until then a version here may only move together with
+# the prod API image's own pin, and a change requires a fresh baseline capture
+# and a re-run of scripts/beta_equivalence.py.
+pyspacer==0.12.0
+scikit-learn==1.5.2
+scipy==1.18.0
+torch==2.6.0
+torchvision==0.21.0
+numpy==2.1.3
+Pillow==12.3.0

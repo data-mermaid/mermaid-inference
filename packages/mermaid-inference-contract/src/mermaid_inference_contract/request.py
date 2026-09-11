@@ -11,7 +11,7 @@ class PyspacerRequest(BaseModel):
     classifier_type: Literal["pyspacer"]  # discriminator + lane key
     image: S3Location
     points: list[tuple[int, int]]  # (row, col) pairs
-    feature_vector_output: S3Location | None = None  # in contract; None this round
+    feature_vector_output: S3Location | None = None  # S3 location for features; None = no write
     traceparent: str | None = None  # W3C trace-context, carried in the envelope
 
 

@@ -46,17 +46,22 @@ resp = PyspacerResponse(
 
 The pyspacer classifier compute lane. The handler validates a `PyspacerRequest`,
 **lazily** imports the torch/pyspacer backend (keeping the multi-second import
-out of Lambda's INIT phase), runs pyspacer EfficientNet extraction, loads the
-version's `model.pt` head via the shared `load_predictor()`, runs
-`predict_proba`, and returns a `PyspacerResponse`. Extractor weights +
-`model.pt`/`model.json` are resolved from the image's deploy-pinned
-`CLASSIFIER_VERSION` and cached in `/tmp` keyed by version. A thin FastAPI wrapper exposes the same handler for
-local-dev and manual checks.
+out of Lambda's INIT phase), runs pyspacer EfficientNet extraction, then
+predicts and returns a `PyspacerResponse`. The image's deploy-pinned
+`CLASSIFIER_VERSION` is still the only model selector; a second deploy-pinned
+setting, `CLASSIFIER_FORMAT`, decides which files that version resolves to and
+which loader predicts with them — `graph` (default) predicts through
+`mermaid-classifier`'s `load_predictor()` over `model.pt`/`model.json`;
+`legacy` predicts a pickled scikit-learn classifier straight through pyspacer.
+Resolved files are cached in `/tmp` keyed by version. A thin FastAPI wrapper
+exposes the same handler for local-dev and manual checks.
 
-It depends on `mermaid-classifier[inference]` (the portable-artifact loader) and
-pyspacer (feature extraction), and is deployed as a Lambda container image
-(provisioning lives in mermaid-api's CDK). See `packages/pyspacer-function/` for
-the handler, the model resolver, the Dockerfile, and run instructions.
+It depends on pyspacer (feature extraction) always, and on
+`mermaid-classifier[inference]` (the portable-artifact loader) for `graph`
+builds only — the `legacy` image installs no `mermaid-classifier` at all. It is
+deployed as a Lambda container image (provisioning lives in mermaid-api's CDK).
+See `packages/pyspacer-function/` for the handler, the model resolver, the two
+Dockerfiles, and run instructions.
 
 ## Development
 
@@ -73,12 +78,25 @@ root is scoped to the contract tests.
 
 ## CI / image publishing
 
-The `.github/workflows/build-push.yml` workflow is a manual `workflow_dispatch` that builds and pushes the `pyspacer-function` Lambda image to ECR (`mermaid-inference-pyspacer`). It takes three inputs:
+The `.github/workflows/build-push.yml` workflow is a manual `workflow_dispatch` that builds and pushes the `pyspacer-function` Lambda image to ECR (`mermaid-inference-pyspacer`). It takes four inputs:
 
 - **`model_version`** — the model version this image serves, e.g. `v2` (must match `^v[0-9]+$`).
 - **`build`** — the serving build number under that model version, e.g. `1` (must be an integer).
-- **`classifier_ref`** — the exact `mermaid-classifier` git tag or SHA that matches the model's training.
+- **`classifier_format`** — `graph` (default) or `legacy`, selecting which `Dockerfile*` builds and which artifact shape the image serves.
+- **`classifier_ref`** — the exact `mermaid-classifier` git tag or SHA that matches the model's training. Required when `classifier_format` is `graph`; must be empty when it is `legacy` (the legacy image installs no `mermaid-classifier`).
 
 The workflow pushes a single immutable tag `vN-K` (e.g. `v2-1`) to ECR. Bump the build number for a code or library fix; bump the model version for a retrain. Requires one GitHub repo secret:
 
 - **Secret** `AWS_ACCOUNT_ID`: the AWS account ID for OIDC role assumption (assumes `mermaid-inference-image-push-role`).
+
+**Release precondition — contract version before image:** `PyspacerResponse`
+sets `extra="forbid"`, and the handler dumps every field including defaults, so
+an image built from a tree that adds a response field (`feature_vector_output`,
+contract 0.5.0) puts that field on the wire for every response, whether or not
+the request asked for it. A consumer still pinned to contract 0.4.0 rejects the
+unknown key — that fails **every** classification through the image, not only
+feature-vector requests. Cut the contract git tag and land mermaid-api's pin
+bump to 0.5.0 **before** pointing any image built from this tree at an
+environment. Nothing in code enforces that order, and ECR tags are immutable:
+getting it backwards burns a `vN-K` tag with the classification lane down
+behind it.

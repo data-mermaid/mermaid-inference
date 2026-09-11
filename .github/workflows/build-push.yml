@@ -10,9 +10,16 @@ on:
       build:
         description: "Serving build number under this model version, e.g. 1"
         required: true
+      classifier_format:
+        description: "Serving format: graph (mermaid-classifier) or legacy (Beta pickle)"
+        type: choice
+        options:
+          - graph
+          - legacy
+        default: graph
       classifier_ref:
-        description: "Exact mermaid-classifier git tag/sha matching the model's training"
-        required: true
+        description: "Exact mermaid-classifier git tag/sha matching the model's training (graph only; leave empty for legacy)"
+        required: false
 
 permissions:
   id-token: write
@@ -29,9 +36,16 @@ jobs:
         env:
           MV: ${{ inputs.model_version }}
           BK: ${{ inputs.build }}
+          FORMAT: ${{ inputs.classifier_format }}
+          MC_REF: ${{ inputs.classifier_ref }}
         run: |
           [[ "$MV" =~ ^v[0-9]+$ ]] || { echo "model_version must be vN"; exit 1; }
           [[ "$BK" =~ ^[0-9]+$ ]] || { echo "build must be an integer"; exit 1; }
+          case "$FORMAT" in
+            graph)  [ -n "$MC_REF" ] || { echo "classifier_ref is required when classifier_format=graph"; exit 1; } ;;
+            legacy) [ -z "$MC_REF" ] || { echo "classifier_ref must be empty when classifier_format=legacy (it installs no mermaid-classifier)"; exit 1; } ;;
+            *)      echo "classifier_format must be graph or legacy, got '$FORMAT'"; exit 1 ;;
+          esac
           echo "image_tag=${MV}-${BK}" >> "$GITHUB_OUTPUT"
 
       - name: Verify release tag is free, or already on this commit (fail fast)
@@ -60,13 +74,22 @@ jobs:
           IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
           MODEL_VERSION: ${{ inputs.model_version }}
           MC_REF: ${{ inputs.classifier_ref }}
+          FORMAT: ${{ inputs.classifier_format }}
         run: |
-          docker build \
-            -f packages/pyspacer-function/Dockerfile \
-            --build-arg MERMAID_CLASSIFIER_REF="$MC_REF" \
-            --build-arg CLASSIFIER_VERSION="$MODEL_VERSION" \
-            -t "$REGISTRY/mermaid-inference-pyspacer:$IMAGE_TAG" \
-            .
+          if [ "$FORMAT" = "legacy" ]; then
+            docker build \
+              -f packages/pyspacer-function/Dockerfile.legacy \
+              --build-arg CLASSIFIER_VERSION="$MODEL_VERSION" \
+              -t "$REGISTRY/mermaid-inference-pyspacer:$IMAGE_TAG" \
+              .
+          else
+            docker build \
+              -f packages/pyspacer-function/Dockerfile \
+              --build-arg MERMAID_CLASSIFIER_REF="$MC_REF" \
+              --build-arg CLASSIFIER_VERSION="$MODEL_VERSION" \
+              -t "$REGISTRY/mermaid-inference-pyspacer:$IMAGE_TAG" \
+              .
+          fi
 
       # Recoverability: push the git tag (reversible) BEFORE the immutable image push.
       # If the image push fails, a rerun finds the tag already on this commit (the

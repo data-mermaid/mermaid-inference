@@ -19,7 +19,7 @@ from mermaid_inference_contract import (
     parse_classify_request,
 )
 
-from pyspacer_function.config import classifier_version, num_threads
+from pyspacer_function.config import classifier_format, classifier_version, num_threads
 from pyspacer_function.resolver import get_resolver
 
 logger = logging.getLogger(__name__)
@@ -51,16 +51,31 @@ def handler(event, context=None) -> dict:
         import torch
 
         torch.set_num_threads(num_threads())
-        from spacer.data_classes import DataLocation
+        from spacer.messages import DataLocation
 
         from pyspacer_function.classify import classify
-        from pyspacer_function.compat import check_compatibility
+        from pyspacer_function.compat import check_compatibility, check_legacy_pins
 
         version = classifier_version()
         files = get_resolver().resolve(version)
-        check_compatibility(files.model_json)
+        if classifier_format() == "legacy":
+            check_legacy_pins()
+        else:
+            check_compatibility(files.model_json)
         image_loc = DataLocation("s3", key=req.image.key, bucket_name=req.image.bucket)
-        results, valid = classify(image_loc, files, [tuple(p) for p in req.points])
+        feature_output_loc = None
+        if req.feature_vector_output is not None:
+            feature_output_loc = DataLocation(
+                "s3",
+                key=req.feature_vector_output.key,
+                bucket_name=req.feature_vector_output.bucket,
+            )
+        results, valid = classify(
+            image_loc,
+            files,
+            [tuple(p) for p in req.points],
+            feature_output_loc=feature_output_loc,
+        )
 
         logger.info("pyspacer classify success", extra={"traceparent": req.traceparent})
         return PyspacerResponse(
@@ -69,6 +84,9 @@ def handler(event, context=None) -> dict:
             contract_version=CONTRACT_VERSION,
             point_results=results,
             valid_rowcol=valid,
+            # classify() raises before returning if the write above fails, so
+            # reaching this line while a location was requested means it landed.
+            feature_vector_output=req.feature_vector_output,
             traceparent=req.traceparent,
         ).model_dump(mode="json")
     except Exception as exc:  # noqa: BLE001 — surface as a processing-error envelope

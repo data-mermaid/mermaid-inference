@@ -306,20 +306,35 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'training'" },
     { name = "mermaid-classifier", extras = ["inference"], marker = "extra == 'training'" },
     { name = "mlflow", marker = "extra == 'training'", specifier = ">=3" },
+    { name = "numpy", marker = "extra == 'training'" },
     { name = "pandas", marker = "extra == 'training'" },
     { name = "psutil", marker = "extra == 'training'" },
     { name = "pyarrow", marker = "extra == 'training'" },
     { name = "pydantic-settings", marker = "extra == 'training'" },
     { name = "pyspacer", marker = "extra == 'inference'", specifier = "==0.14.0" },
+    { name = "pyyaml", marker = "extra == 'training'" },
     { name = "s3fs", marker = "extra == 'training'" },
+    { name = "sagemaker", marker = "extra == 'sagemaker'", specifier = ">=2.0,<3.0" },
+    { name = "sagemaker-mlflow", marker = "extra == 'training'" },
     { name = "scikit-learn", marker = "extra == 'inference'", specifier = "==1.5.2" },
     { name = "scikit-learn", marker = "extra == 'training'", specifier = "==1.5.2" },
+    { name = "torch", marker = "sys_platform == 'linux' and extra == 'training'", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torch", marker = "sys_platform != 'linux' and extra == 'training'" },
+    { name = "torchvision", marker = "sys_platform == 'linux' and extra == 'training'", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torchvision", marker = "sys_platform != 'linux' and extra == 'training'" },
 ]
-provides-extras = ["inference", "training", "jupyterlab"]
+provides-extras = ["inference", "training", "jupyterlab", "sagemaker"]
+
+[package.metadata.requires-dev]
+lint = [
+    { name = "basedpyright" },
+    { name = "ruff" },
+]
+sagemaker = []
 
 [[package]]
 name = "mermaid-inference-contract"
-version = "0.2.0"
+version = "0.5.0"
 source = { editable = "packages/mermaid-inference-contract" }
 dependencies = [
     { name = "pydantic" },
