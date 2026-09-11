@@ -44,4 +44,7 @@ ENV CLASSIFIER_VERSION=${CLASSIFIER_VERSION} \
     MPLCONFIGDIR=/tmp \
     CLASSIFIER_FORMAT=legacy
 
+# Image label: identifies this as a legacy-format serving image for operator queries
+LABEL classifier.format=legacy
+
 CMD ["pyspacer_function.handler.handler"]

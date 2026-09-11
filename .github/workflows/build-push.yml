@@ -41,11 +41,11 @@ jobs:
         run: |
           [[ "$MV" =~ ^v[0-9]+$ ]] || { echo "model_version must be vN"; exit 1; }
           [[ "$BK" =~ ^[0-9]+$ ]] || { echo "build must be an integer"; exit 1; }
-          if [ "$FORMAT" = "graph" ]; then
-            [ -n "$MC_REF" ] || { echo "classifier_ref is required when classifier_format=graph"; exit 1; }
-          else
-            [ -z "$MC_REF" ] || { echo "classifier_ref must be empty when classifier_format=legacy (it installs no mermaid-classifier)"; exit 1; }
-          fi
+          case "$FORMAT" in
+            graph)  [ -n "$MC_REF" ] || { echo "classifier_ref is required when classifier_format=graph"; exit 1; } ;;
+            legacy) [ -z "$MC_REF" ] || { echo "classifier_ref must be empty when classifier_format=legacy (it installs no mermaid-classifier)"; exit 1; } ;;
+            *)      echo "classifier_format must be graph or legacy, got '$FORMAT'"; exit 1 ;;
+          esac
           echo "image_tag=${MV}-${BK}" >> "$GITHUB_OUTPUT"
 
       - name: Verify release tag is free, or already on this commit (fail fast)
