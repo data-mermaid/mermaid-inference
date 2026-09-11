@@ -55,7 +55,10 @@ DEFAULT_NUM_POINTS = 25
 DEFAULT_TOLERANCE = 1e-5
 DEFAULT_THRESHOLD = 0.5
 TOP_N = 3
-_IMAGE_SUFFIXES = {".jpg", ".jpeg"}
+# PIL (pyspacer's load_image) reads PNG natively and both producing modes glob
+# identically, so including it costs nothing in comparison soundness while
+# scoring images that .jpg-only would drop.
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 
 
 def generate_points(
@@ -81,9 +84,21 @@ def generate_points(
 
 
 def _discover_images(images_dir: Path) -> list[Path]:
-    images = sorted(p for p in images_dir.iterdir() if p.suffix.lower() in _IMAGE_SUFFIXES)
+    """Every file under images_dir is accounted for: a recognized extension is
+    scored, anything else is counted and named so a mismatched dataset is
+    never dropped without a trace."""
+    entries = sorted(p for p in images_dir.iterdir() if p.is_file())
+    images = [p for p in entries if p.suffix.lower() in _IMAGE_SUFFIXES]
+    skipped = [p for p in entries if p.suffix.lower() not in _IMAGE_SUFFIXES]
+    if skipped:
+        print(
+            f"skipping {len(skipped)} file(s) with an unrecognized extension: "
+            f"{', '.join(p.name for p in skipped)}",
+            file=sys.stderr,
+        )
     if not images:
-        raise FileNotFoundError(f"no .jpg/.jpeg images found under {images_dir}")
+        suffixes = "/".join(sorted(_IMAGE_SUFFIXES))
+        raise FileNotFoundError(f"no usable images ({suffixes}) found under {images_dir}")
     return images
 
 
@@ -246,8 +261,10 @@ def compare(
     one matters because mermaid-api's CLASSIFIED_THRESHOLD decides whether an
     Annotation row is written at all, so a near-tie flip changes stored data
     even when every delta looks tiny. Raises ValueError when the two runs did
-    not score the same points, which is a precondition failure distinct from
-    a gate failure."""
+    not score the same points — including when neither scored any — which is
+    a precondition failure distinct from a gate failure: every criterion here
+    is a "no violations found" check, trivially true of an empty comparison,
+    so a vacuous run must never be reported as a pass."""
     base_by_key = {(p["image"], p["row"], p["col"]): p["scores"] for p in baseline["points"]}
     cand_by_key = {(p["image"], p["row"], p["col"]): p["scores"] for p in candidate["points"]}
     if set(base_by_key) != set(cand_by_key):
@@ -256,6 +273,8 @@ def compare(
             f"baseline and candidate score different points — {len(mismatched)} "
             f"mismatched (image, row, col) keys, e.g. {mismatched[:5]}"
         )
+    if not base_by_key:
+        raise ValueError("baseline and candidate both score zero points — nothing to compare")
 
     top1_violations: list[str] = []
     top3_violations: list[str] = []
@@ -351,7 +370,9 @@ def cmd_compare(args: argparse.Namespace) -> int:
 
 
 def _add_producer_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--images-dir", required=True, help="directory of local .jpg/.jpeg images")
+    parser.add_argument(
+        "--images-dir", required=True, help="directory of local .jpg/.jpeg/.png images"
+    )
     parser.add_argument(
         "--model-dir",
         required=True,

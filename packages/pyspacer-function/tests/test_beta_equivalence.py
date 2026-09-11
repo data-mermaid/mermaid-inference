@@ -112,3 +112,45 @@ def test_mismatched_points_reported_as_uncomparable_not_a_gate_failure(tmp_path)
 
     assert proc.returncode == 2
     assert "cannot compare" in proc.stderr
+
+
+def test_zero_points_reported_as_uncomparable_not_a_gate_pass(tmp_path):
+    # Both files are well-formed with an empty points list — every criterion
+    # is vacuously true of an empty set, so this must not read as a PASS.
+    baseline = _result()
+    candidate = _result()
+
+    proc = _run_compare(tmp_path, baseline, candidate)
+
+    assert proc.returncode == 2
+    assert "cannot compare" in proc.stderr
+    assert "RESULT: PASS" not in proc.stdout
+
+
+def test_producing_mode_on_directory_with_no_usable_images_fails_and_names_skips(tmp_path):
+    images_dir = tmp_path / "images"
+    images_dir.mkdir()
+    (images_dir / "notes.txt").write_text("not an image")
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    out_path = tmp_path / "baseline.json"
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(_SCRIPT),
+            "baseline",
+            "--images-dir",
+            str(images_dir),
+            "--model-dir",
+            str(model_dir),
+            "--out",
+            str(out_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode != 0
+    assert not out_path.exists()
+    assert "notes.txt" in proc.stdout + proc.stderr
