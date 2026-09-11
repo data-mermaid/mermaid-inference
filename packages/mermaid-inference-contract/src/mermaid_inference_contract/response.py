@@ -2,6 +2,8 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from mermaid_inference_contract.locations import S3Location
+
 
 class PointScore(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -25,6 +27,7 @@ class PyspacerResponse(BaseModel):
     classifier_version: str
     point_results: list[PointResult]
     valid_rowcol: bool  # from pyspacer ClassifyReturnMsg.valid_rowcol
+    feature_vector_output: S3Location | None = None  # where inference wrote it; None if not written
     traceparent: str | None = None
     contract_version: str | None = None  # mermaid_inference_contract.__version__ of the emitter
 

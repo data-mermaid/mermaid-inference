@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from mermaid_inference_contract.locations import S3Location
 from mermaid_inference_contract.response import (
     PointResult,
     PointScore,
@@ -77,3 +78,18 @@ def test_pyspacer_response_carries_optional_contract_version():
     # Round-trips when present.
     r = parse_classify_response({**base, "contract_version": "0.4.0"})
     assert r.contract_version == "0.4.0"
+
+
+def test_feature_vector_output_defaults_to_none():
+    resp = PyspacerResponse.model_validate(_payload())
+    assert resp.feature_vector_output is None
+
+
+def test_feature_vector_output_roundtrips_through_parse():
+    payload = _payload() | {
+        "feature_vector_output": {"bucket": "features", "key": "a.featurevector"}
+    }
+    resp = parse_classify_response(payload)
+    assert resp.feature_vector_output == S3Location(bucket="features", key="a.featurevector")
+    assert resp.feature_vector_output.bucket == "features"
+    assert resp.feature_vector_output.key == "a.featurevector"
