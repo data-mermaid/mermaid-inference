@@ -1,7 +1,9 @@
 import ast
+import json
 from pathlib import Path
 
 import pyspacer_function.classify as classify_mod
+import pyspacer_function.compat as compat_mod
 import pyspacer_function.handler as handler_mod
 from mermaid_inference_contract import PointResult, PointScore
 from pyspacer_function.handler import handler
@@ -39,6 +41,85 @@ def test_handler_returns_pyspacer_response(monkeypatch, tmp_path, make_model_dir
     assert out["valid_rowcol"] is True
     assert out["traceparent"] == "tp-1"
     assert out["point_results"][0]["scores"][0]["label"] == "a::"
+
+
+def test_handler_reports_feature_vector_output_when_requested(
+    monkeypatch, tmp_path, make_model_dir
+):
+    root = tmp_path / "models"
+    make_model_dir(root / "v2")
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    monkeypatch.setattr(
+        classify_mod,
+        "classify",
+        lambda *a, **k: (
+            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
+            True,
+        ),
+    )
+
+    event = _event()
+    event["feature_vector_output"] = {"bucket": "fb", "key": "features/out.featurevector"}
+
+    out = handler(event)
+    assert out["feature_vector_output"] == {"bucket": "fb", "key": "features/out.featurevector"}
+
+
+def test_handler_leaves_feature_vector_output_none_when_not_requested(
+    monkeypatch, tmp_path, make_model_dir
+):
+    root = tmp_path / "models"
+    make_model_dir(root / "v2")
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    monkeypatch.setattr(
+        classify_mod,
+        "classify",
+        lambda *a, **k: (
+            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
+            True,
+        ),
+    )
+
+    out = handler(_event())  # no feature_vector_output in the request
+    assert out["feature_vector_output"] is None
+
+
+def test_handler_feature_vector_write_failure_surfaces_as_processing_error(
+    monkeypatch, tmp_path, make_model_dir, caplog
+):
+    root = tmp_path / "models"
+    make_model_dir(root / "v2")
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    def _classify_with_failing_store(*a, feature_output_loc=None, **k):
+        # The handler must forward the request's location through unchanged.
+        assert feature_output_loc is not None
+        assert feature_output_loc.bucket_name == "fb"
+        assert feature_output_loc.key == "features/out.featurevector"
+        raise RuntimeError("feature vector store failed")
+
+    monkeypatch.setattr(classify_mod, "classify", _classify_with_failing_store)
+
+    event = _event(traceparent="tp-fv-fail")
+    event["feature_vector_output"] = {"bucket": "fb", "key": "features/out.featurevector"}
+
+    with caplog.at_level("ERROR"):
+        out = handler(event)
+
+    assert out["error_code"] == "processing_error"
+    assert out["traceparent"] == "tp-fv-fail"
+    # Confirms the RuntimeError from the store attempt propagated, not an
+    # earlier failure from a wrong/missing feature_output_loc forward.
+    assert out["message"] == "feature vector store failed"
+    assert "[classify.processing_error]" in caplog.text
 
 
 def test_handler_validation_error_on_bad_payload():
@@ -158,3 +239,73 @@ def test_handler_module_has_no_backend_import_at_module_scope():
             root = (node.module or "").split(".")[0]
             assert root not in {"torch", "spacer"}
             assert node.module != "pyspacer_function.classify"
+
+
+def test_classify_module_has_no_mermaid_classifier_import_at_module_scope():
+    # mermaid-classifier is absent from the legacy image, so classify.py must
+    # import it only inside the graph branch for the module to import at all.
+    tree = ast.parse(Path(classify_mod.__file__).read_text())
+    for node in tree.body:  # module-level statements only
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert alias.name.split(".")[0] != "mermaid_classifier"
+        if isinstance(node, ast.ImportFrom):
+            assert (node.module or "").split(".")[0] != "mermaid_classifier"
+
+
+def test_handler_legacy_format_succeeds_without_model_json(
+    monkeypatch, tmp_path, make_legacy_model_dir
+):
+    root = tmp_path / "models"
+    make_legacy_model_dir(root / "v-legacy")
+    # No model.json anywhere under the version dir: a run through the graph
+    # gate would blow up on files.model_json, which LegacyModelFiles has no
+    # such field for.
+    assert not (root / "v-legacy" / "model.json").exists()
+
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v-legacy")
+    monkeypatch.setenv("CLASSIFIER_FORMAT", "legacy")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    # legacy_pins.txt carries placeholder production versions that need not
+    # match this dev environment; the pin-matching itself is compat.py's own
+    # test coverage, not the dispatch behavior under test here.
+    monkeypatch.setattr(compat_mod, "check_legacy_pins", lambda: None)
+    monkeypatch.setattr(
+        classify_mod,
+        "classify",
+        lambda *a, **k: (
+            [PointResult(row=10, col=10, scores=[PointScore(label="1111::", score=1.0)])],
+            True,
+        ),
+    )
+
+    out = handler(_event(traceparent="tp-legacy"))
+    assert "error_code" not in out  # a processing_error means the graph gate ran instead
+    assert out["point_results"][0]["scores"][0]["label"] == "1111::"
+    assert out["classifier_version"] == "v-legacy"
+    assert out["traceparent"] == "tp-legacy"
+
+
+def test_handler_graph_format_runs_check_compatibility_on_mismatch(
+    monkeypatch, tmp_path, make_model_dir
+):
+    root = tmp_path / "models"
+    make_model_dir(root / "v3")
+    manifest_path = root / "v3" / "model.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["trained_with"]["pyspacer"] = "0.0.1"  # force a mismatch against the runtime
+    manifest_path.write_text(json.dumps(manifest))
+
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v3")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+    monkeypatch.delenv("CLASSIFIER_FORMAT", raising=False)  # default: graph
+
+    out = handler(_event(traceparent="tp-mismatch"))
+    assert out["error_code"] == "processing_error"
+    assert out["traceparent"] == "tp-mismatch"
+    # Names check_compatibility's own mismatch message, so this fails if the
+    # graph path is ever routed to check_legacy_pins instead.
+    assert "pyspacer: model built with 0.0.1" in out["message"]
