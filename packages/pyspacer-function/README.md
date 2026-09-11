@@ -75,6 +75,16 @@ docker build -f packages/pyspacer-function/Dockerfile.legacy \
 
 ## Score-equivalence gate (legacy)
 
+**Release precondition — contract version before image:** `PyspacerResponse`
+forbids extra fields and the handler dumps every field including defaults, so
+an image built from a tree that adds a response field puts that field on the
+wire for every response, feature-vector requests or not. A consumer still
+pinned to the older contract version rejects the unknown key, which fails
+every classification through the image. Cut the contract git tag and land
+mermaid-api's pin bump **before** pointing any such image at an environment —
+nothing in code enforces that order, and, as with the ECR tag below, getting
+it backwards is not something you can take back.
+
 Before a legacy-format release burns a `vN-K` ECR tag, run
 `scripts/beta_equivalence.py` — its module docstring carries the full runbook,
 including the exact `docker run` invocations for its `baseline`, `candidate`,
@@ -87,3 +97,11 @@ once — the mermaid-api ECS worker is x86_64/Python 3.13, the inference Lambda
 is arm64/Python 3.12, and the Lambda sets 6 torch threads where the worker
 takes the default — and any one of those can reorder a floating-point
 reduction and change a score.
+
+`legacy_pins.txt`'s own versions are numeric-stack-sensitive for the same
+reason: they sit two minor versions behind the graph image on torch and
+pyspacer so this lane mirrors the production API image. A pin there cannot be
+bumped routinely, security patches included — changing one means
+re-capturing the baseline from a running production API task and re-running
+this gate, since a different numeric stack invalidates the measurement it is
+built to make.

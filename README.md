@@ -88,3 +88,15 @@ The `.github/workflows/build-push.yml` workflow is a manual `workflow_dispatch` 
 The workflow pushes a single immutable tag `vN-K` (e.g. `v2-1`) to ECR. Bump the build number for a code or library fix; bump the model version for a retrain. Requires one GitHub repo secret:
 
 - **Secret** `AWS_ACCOUNT_ID`: the AWS account ID for OIDC role assumption (assumes `mermaid-inference-image-push-role`).
+
+**Release precondition — contract version before image:** `PyspacerResponse`
+sets `extra="forbid"`, and the handler dumps every field including defaults, so
+an image built from a tree that adds a response field (`feature_vector_output`,
+contract 0.5.0) puts that field on the wire for every response, whether or not
+the request asked for it. A consumer still pinned to contract 0.4.0 rejects the
+unknown key — that fails **every** classification through the image, not only
+feature-vector requests. Cut the contract git tag and land mermaid-api's pin
+bump to 0.5.0 **before** pointing any image built from this tree at an
+environment. Nothing in code enforces that order, and ECR tags are immutable:
+getting it backwards burns a `vN-K` tag with the classification lane down
+behind it.
