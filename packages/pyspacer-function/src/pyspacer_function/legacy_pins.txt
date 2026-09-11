@@ -4,12 +4,19 @@
 # format's stand-in for the graph format's model.json "trained_with" gate.
 # One file, so the install and the check cannot drift.
 #
-# Captured from the production MERMAID API image (ECR asset tag
-# f5410d7241bfbd85b7369ac7ad564b3e416fd0512b51a1a4d7578d0275c24f50 in
-# cdk-hnb659fds-container-assets-554812291621-us-east-1) via pip freeze on
-# 2026-09-11. The Lambda image that actually runs is arm64/Python 3.12, while
-# this capture is from x86_64/Python 3.13; these pins freeze versions, not
-# wheels, and the pre-release gate measures the equivalence.
+# Recapture (versions drift with every prod API image rebuild — mermaid-api
+# pins no torch/torchvision/numpy): ECS exec into a running task of the prod
+# API service (the prod-mermaid-api-django stack's ApiService, which has ECS
+# exec enabled) and run
+#   pip freeze | grep -iE '^(pyspacer|scikit-learn|scipy|torch|torchvision|numpy|Pillow)=='
+# Captured 2026-09-11 from x86_64/Python 3.13; the Lambda that runs these is
+# arm64/Python 3.12. These pin versions, not wheels — the pre-release
+# score-equivalence gate is what measures the difference.
+#
+# Lifetime: this freeze is retired when the Beta lane is, i.e. when the graph
+# format supersedes it. Until then a version here may only move together with
+# the prod API image's own pin, and a change requires a fresh baseline capture
+# and a re-run of scripts/beta_equivalence.py.
 pyspacer==0.12.0
 scikit-learn==1.5.2
 scipy==1.18.0
