@@ -1,0 +1,47 @@
+# arm64 (Graviton) builds natively on Apple-Silicon dev machines; torch's
+# aarch64 wheels are CPU-only. For x86_64: change the platform to
+# linux/amd64, set Architectures: [x86_64] in the CDK function (mermaid-classifier issue #53),
+# and install torch from the CPU index.
+#
+# Single-stage: the graph image (Dockerfile) is multi-stage because
+# mermaid-classifier is a git+https dependency and the Lambda base image ships
+# no git, so git is confined to a throwaway builder stage. This image installs
+# no git dependency at all -- the Beta scikit-learn pickle needs no
+# mermaid-classifier -- so that rationale doesn't apply here.
+
+FROM --platform=linux/arm64 public.ecr.aws/lambda/python:3.12
+
+ARG CLASSIFIER_VERSION=dev
+
+# Heavy, stable layer first -> lazy container loading pulls fewer bytes on cold
+# start. legacy_pins.txt exact-pins pyspacer, scikit-learn, torch, torchvision,
+# numpy, and Pillow: it is the single source of truth for this image's numeric
+# stack (also parsed at runtime by check_legacy_pins() to assert the runtime
+# matches), so install from it directly rather than restating any version here.
+# The pinned torch/torchvision must publish linux/arm64 wheels, since this base
+# is arm64 (Graviton) and torch's aarch64 wheels are CPU-only.
+COPY packages/pyspacer-function/src/pyspacer_function/legacy_pins.txt /tmp/legacy_pins.txt
+RUN pip install --no-cache-dir -r /tmp/legacy_pins.txt
+
+# FastAPI/uvicorn are only used by the local-dev harness, but cheap to include.
+RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn>=0.29"
+
+# Contract + function packages. Copied individually rather than the whole
+# build context: with no builder stage to discard a whole-context COPY into,
+# anything extra would ship in this image's own layer.
+# --no-deps: everything is already present from the layers above, and it's
+# what keeps mermaid-classifier (declared in pyspacer-function's pyproject.toml
+# for local development) out of this image.
+COPY packages/mermaid-inference-contract /build/packages/mermaid-inference-contract
+COPY packages/pyspacer-function /build/packages/pyspacer-function
+RUN pip install --no-cache-dir --no-deps /build/packages/mermaid-inference-contract \
+    && pip install --no-cache-dir --no-deps /build/packages/pyspacer-function
+
+ENV CLASSIFIER_VERSION=${CLASSIFIER_VERSION} \
+    SPACER_EXTRACTORS_CACHE_DIR=/tmp \
+    TORCH_HOME=/tmp \
+    HOME=/tmp \
+    MPLCONFIGDIR=/tmp \
+    CLASSIFIER_FORMAT=legacy
+
+CMD ["pyspacer_function.handler.handler"]
