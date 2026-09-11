@@ -65,7 +65,9 @@ def write_model_files(dest: Path) -> ModelFiles:
 def write_legacy_model_files(dest: Path) -> LegacyModelFiles:
     """Write efficientnet_weights.pt (stub) + classifier.pkl into dest/. The
     pickle is a prefit CalibratedClassifierCV stored through spacer: pyspacer's
-    ClassifierUnpickler rejects anything else on load."""
+    ClassifierUnpickler checks the loaded object's type — CalibratedClassifierCV
+    with cv == 'prefit' — only after unpickling completes, so it constrains what
+    load() returns, not what the pickle stream executes to get there."""
     dest.mkdir(parents=True, exist_ok=True)
     per_class = 10
     centres = np.eye(len(_LEGACY_CLASSES), _IN_DIM)

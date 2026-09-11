@@ -1,7 +1,10 @@
 import ast
+import importlib
+import sys
 from pathlib import Path
 
 import pyspacer_function.classify as classify_mod
+import pytest
 from PIL import Image
 from spacer.data_classes import ImageFeatures
 from spacer.messages import DataLocation
@@ -100,6 +103,31 @@ def test_classify_writes_nothing_when_no_feature_output_loc(
     assert store_calls == []
 
 
+def test_classify_propagates_a_failing_feature_store(
+    tmp_path, model_files, fake_extractor_cls, monkeypatch
+):
+    img_path = tmp_path / "img.png"
+    Image.new("RGB", (64, 64), "white").save(img_path)
+    image_loc = DataLocation("filesystem", str(img_path))
+    points = [(10, 10)]
+    vectors = {(10, 10): [3.0, 0.0, 0.0, 0.0]}
+    feature_loc = DataLocation("filesystem", str(tmp_path / "out.featurevector"))
+
+    def _raise(self, loc):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ImageFeatures, "store", _raise)
+
+    with pytest.raises(OSError, match="disk full"):
+        classify(
+            image_loc,
+            model_files,
+            points,
+            extractor=fake_extractor_cls(vectors),
+            feature_output_loc=feature_loc,
+        )
+
+
 def test_classify_module_has_no_mermaid_classifier_import_at_module_scope():
     # The legacy image installs no mermaid-classifier, so a module-scope import
     # would break it on import.
@@ -110,3 +138,30 @@ def test_classify_module_has_no_mermaid_classifier_import_at_module_scope():
                 assert alias.name.split(".")[0] != "mermaid_classifier"
         if isinstance(node, ast.ImportFrom):
             assert (node.module or "").split(".")[0] != "mermaid_classifier"
+
+
+def test_classify_module_reloads_with_mermaid_classifier_import_blocked(monkeypatch):
+    # test_classify_module_has_no_mermaid_classifier_import_at_module_scope
+    # only inspects top-level Import/ImportFrom nodes; an unguarded import
+    # nested in an if/try block, or importlib.import_module, breaks the
+    # legacy image without producing one.
+    class _BlockMermaidClassifier:
+        def find_spec(self, fullname, path, target=None):
+            if fullname == "mermaid_classifier" or fullname.startswith("mermaid_classifier."):
+                raise ImportError(f"{fullname} is blocked for this test")
+            return None
+
+    try:
+        with monkeypatch.context() as m:
+            m.setattr(sys, "meta_path", [_BlockMermaidClassifier(), *sys.meta_path])
+            cached = [
+                name
+                for name in sys.modules
+                if name == "mermaid_classifier" or name.startswith("mermaid_classifier.")
+            ]
+            for name in cached:
+                m.delitem(sys.modules, name)
+
+            importlib.reload(classify_mod)  # must succeed with the import blocked
+    finally:
+        importlib.reload(classify_mod)  # restore normal state for the rest of the suite

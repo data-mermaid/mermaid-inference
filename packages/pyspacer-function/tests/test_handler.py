@@ -241,18 +241,6 @@ def test_handler_module_has_no_backend_import_at_module_scope():
             assert node.module != "pyspacer_function.classify"
 
 
-def test_classify_module_has_no_mermaid_classifier_import_at_module_scope():
-    # mermaid-classifier is absent from the legacy image, so classify.py must
-    # import it only inside the graph branch for the module to import at all.
-    tree = ast.parse(Path(classify_mod.__file__).read_text())
-    for node in tree.body:  # module-level statements only
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                assert alias.name.split(".")[0] != "mermaid_classifier"
-        if isinstance(node, ast.ImportFrom):
-            assert (node.module or "").split(".")[0] != "mermaid_classifier"
-
-
 def test_handler_legacy_format_succeeds_without_model_json(
     monkeypatch, tmp_path, make_legacy_model_dir
 ):

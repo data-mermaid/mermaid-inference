@@ -75,6 +75,13 @@ def test_legacy_pin_on_an_uninstalled_package_raises(tmp_path):
         compat.check_legacy_pins(_pins_file(tmp_path, {"not-a-real-package": "1.0"}))
 
 
+def test_malformed_pin_line_raises_naming_the_line(tmp_path):
+    p = tmp_path / "legacy_pins.txt"
+    p.write_text("# placeholder pins\npyspacer==1.0\nnot-a-valid-line\n")
+    with pytest.raises(RuntimeError, match="not-a-valid-line"):
+        compat._parse_pins(p)
+
+
 def test_check_legacy_pins_default_path_resolves_and_parses_the_shipped_file():
     # Whether the pinned versions match the runtime depends on which image runs
     # the suite (only the legacy image's install matches); resolution and
