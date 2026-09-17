@@ -2,10 +2,14 @@ import ast
 import json
 from pathlib import Path
 
+import botocore.exceptions
 import pyspacer_function.classify as classify_mod
 import pyspacer_function.compat as compat_mod
 import pyspacer_function.handler as handler_mod
 from mermaid_inference_contract import PointResult, PointScore
+from PIL import Image
+from spacer.data_classes import ImageFeatures
+
 from pyspacer_function.handler import handler
 
 
@@ -130,6 +134,52 @@ def test_handler_tolerates_feature_store_failure(monkeypatch, tmp_path, make_mod
     assert out["traceparent"] == "tp-fv-fail"
     assert out["point_results"][0]["scores"][0]["label"] == "a::"
     assert out["feature_vector_output"] is None
+
+
+def test_handler_tolerated_store_failure_logs_only_the_feature_store_marker(
+    monkeypatch, tmp_path, make_model_dir, fake_extractor_cls, caplog
+):
+    root = tmp_path / "models"
+    make_model_dir(root / "v2")
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    # Mocks only the genuine AWS boundaries: the S3 image GET and the
+    # extractor's real EfficientNet weights. Everything else — parsing,
+    # extraction plumbing, predict, the store try/except — runs for real.
+    image = Image.new("RGB", (64, 64), "white")
+    monkeypatch.setattr(classify_mod, "load_image", lambda image_loc: image)
+    vectors = {(10, 10): [3.0, 0.0, 0.0, 0.0]}
+    monkeypatch.setattr(
+        classify_mod, "EfficientNetExtractor", lambda **kwargs: fake_extractor_cls(vectors)
+    )
+
+    def _raise_access_denied(self, loc):
+        raise botocore.exceptions.ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "PutObject"
+        )
+
+    monkeypatch.setattr(ImageFeatures, "store", _raise_access_denied)
+
+    event = _event(traceparent="tp-store-fail")
+    event["feature_vector_output"] = {"bucket": "fb", "key": "features/out.featurevector"}
+
+    with caplog.at_level("ERROR"):
+        out = handler(event)
+
+    assert "error_code" not in out
+    assert out["feature_vector_output"] is None
+    scores = out["point_results"][0]["scores"]
+    assert {s["label"] for s in scores} == {"a::", "b::", "c::"}
+    assert abs(sum(s["score"] for s in scores) - 1.0) < 1e-5
+    assert "[classify.feature_store_error]" in caplog.text
+    assert "[classify.processing_error]" not in caplog.text
+    store_errors = [
+        r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()
+    ]
+    assert len(store_errors) == 1
+    assert "error=ClientError" in store_errors[0].getMessage()
 
 
 def test_handler_classify_exception_still_surfaces_as_processing_error(
