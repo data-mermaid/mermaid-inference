@@ -2,10 +2,14 @@ import ast
 import json
 from pathlib import Path
 
+import botocore.exceptions
 import pyspacer_function.classify as classify_mod
 import pyspacer_function.compat as compat_mod
 import pyspacer_function.handler as handler_mod
 from mermaid_inference_contract import PointResult, PointScore
+from PIL import Image
+from spacer.data_classes import ImageFeatures
+
 from pyspacer_function.handler import handler
 
 
@@ -29,9 +33,12 @@ def test_handler_returns_pyspacer_response(monkeypatch, tmp_path, make_model_dir
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 
@@ -55,9 +62,12 @@ def test_handler_reports_feature_vector_output_when_requested(
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=True,
         ),
     )
 
@@ -80,9 +90,12 @@ def test_handler_leaves_feature_vector_output_none_when_not_requested(
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 
@@ -90,7 +103,86 @@ def test_handler_leaves_feature_vector_output_none_when_not_requested(
     assert out["feature_vector_output"] is None
 
 
-def test_handler_feature_vector_write_failure_surfaces_as_processing_error(
+def test_handler_tolerates_feature_store_failure(monkeypatch, tmp_path, make_model_dir):
+    root = tmp_path / "models"
+    make_model_dir(root / "v2")
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    def _classify_with_failed_store(*a, feature_output_loc=None, **k):
+        # The handler must forward the request's location through unchanged.
+        assert feature_output_loc is not None
+        assert feature_output_loc.bucket_name == "fb"
+        assert feature_output_loc.key == "features/out.featurevector"
+        return classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
+        )
+
+    monkeypatch.setattr(classify_mod, "classify", _classify_with_failed_store)
+
+    event = _event(traceparent="tp-fv-fail")
+    event["feature_vector_output"] = {"bucket": "fb", "key": "features/out.featurevector"}
+
+    out = handler(event)
+
+    assert "error_code" not in out
+    assert out["traceparent"] == "tp-fv-fail"
+    assert out["point_results"][0]["scores"][0]["label"] == "a::"
+    assert out["feature_vector_output"] is None
+
+
+def test_handler_tolerated_store_failure_logs_only_the_feature_store_marker(
+    monkeypatch, tmp_path, make_model_dir, fake_extractor_cls, caplog
+):
+    root = tmp_path / "models"
+    make_model_dir(root / "v2")
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    # Mocks only the genuine AWS boundaries: the S3 image GET and the
+    # extractor's real EfficientNet weights. Everything else — parsing,
+    # extraction plumbing, predict, the store try/except — runs for real.
+    image = Image.new("RGB", (64, 64), "white")
+    monkeypatch.setattr(classify_mod, "load_image", lambda image_loc: image)
+    vectors = {(10, 10): [3.0, 0.0, 0.0, 0.0]}
+    monkeypatch.setattr(
+        classify_mod, "EfficientNetExtractor", lambda **kwargs: fake_extractor_cls(vectors)
+    )
+
+    def _raise_access_denied(self, loc):
+        raise botocore.exceptions.ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "PutObject"
+        )
+
+    monkeypatch.setattr(ImageFeatures, "store", _raise_access_denied)
+
+    event = _event(traceparent="tp-store-fail")
+    event["feature_vector_output"] = {"bucket": "fb", "key": "features/out.featurevector"}
+
+    with caplog.at_level("ERROR"):
+        out = handler(event)
+
+    assert "error_code" not in out
+    assert out["feature_vector_output"] is None
+    scores = out["point_results"][0]["scores"]
+    assert {s["label"] for s in scores} == {"a::", "b::", "c::"}
+    assert abs(sum(s["score"] for s in scores) - 1.0) < 1e-5
+    assert "[classify.feature_store_error]" in caplog.text
+    assert "[classify.processing_error]" not in caplog.text
+    store_errors = [
+        r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()
+    ]
+    assert len(store_errors) == 1
+    assert "error=ClientError" in store_errors[0].getMessage()
+
+
+def test_handler_classify_exception_still_surfaces_as_processing_error(
     monkeypatch, tmp_path, make_model_dir, caplog
 ):
     root = tmp_path / "models"
@@ -99,26 +191,22 @@ def test_handler_feature_vector_write_failure_surfaces_as_processing_error(
     monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
     monkeypatch.delenv("CONFIG_BUCKET", raising=False)
 
-    def _classify_with_failing_store(*a, feature_output_loc=None, **k):
-        # The handler must forward the request's location through unchanged.
-        assert feature_output_loc is not None
-        assert feature_output_loc.bucket_name == "fb"
-        assert feature_output_loc.key == "features/out.featurevector"
-        raise RuntimeError("feature vector store failed")
+    def _classify_raises(*a, **k):
+        raise RuntimeError("image load failed")
 
-    monkeypatch.setattr(classify_mod, "classify", _classify_with_failing_store)
+    monkeypatch.setattr(classify_mod, "classify", _classify_raises)
 
-    event = _event(traceparent="tp-fv-fail")
+    event = _event(traceparent="tp-classify-fail")
     event["feature_vector_output"] = {"bucket": "fb", "key": "features/out.featurevector"}
 
     with caplog.at_level("ERROR"):
         out = handler(event)
 
     assert out["error_code"] == "processing_error"
-    assert out["traceparent"] == "tp-fv-fail"
-    # Confirms the RuntimeError from the store attempt propagated, not an
-    # earlier failure from a wrong/missing feature_output_loc forward.
-    assert out["message"] == "feature vector store failed"
+    assert out["traceparent"] == "tp-classify-fail"
+    # A non-store failure surfaces through the outer handler except block;
+    # classify() absorbs feature-store failures itself.
+    assert out["message"] == "image load failed"
     assert "[classify.processing_error]" in caplog.text
 
 
@@ -157,6 +245,21 @@ def test_handler_processing_error_logs_metric_filter_marker(monkeypatch, tmp_pat
     assert "tp-marker" in caplog.text
 
 
+def test_handler_processing_error_marker_escapes_the_traceparent(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(tmp_path))  # no version dir present
+    monkeypatch.setenv("CLASSIFIER_VERSION", "missing")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+    forged_traceparent = "tp-evil\n[classify.processing_error] forged"
+    with caplog.at_level("ERROR"):
+        out = handler(_event(traceparent=forged_traceparent))
+    assert out["error_code"] == "processing_error"
+    marker_records = [r for r in caplog.records if "[classify.processing_error]" in r.getMessage()]
+    assert len(marker_records) == 1
+    # repr() escapes control characters, so a forged marker embedded in the
+    # traceparent cannot start a second, fabricated log line.
+    assert "\n" not in marker_records[0].getMessage()
+
+
 def test_handler_logs_traceparent_on_success(monkeypatch, tmp_path, make_model_dir, caplog):
     root = tmp_path / "models"
     make_model_dir(root / "v2")  # fixture writes a model.json whose trained_with matches runtime
@@ -167,9 +270,12 @@ def test_handler_logs_traceparent_on_success(monkeypatch, tmp_path, make_model_d
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 
@@ -212,9 +318,12 @@ def test_handler_stamps_contract_version(monkeypatch, tmp_path, make_model_dir):
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 
@@ -263,9 +372,12 @@ def test_handler_legacy_format_succeeds_without_model_json(
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="1111::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="1111::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 

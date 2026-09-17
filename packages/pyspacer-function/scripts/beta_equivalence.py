@@ -208,7 +208,7 @@ def _run_candidate(images_dir: Path, model_dir: Path, num_points: int, threads: 
         width, height = load_image(image_loc).size
         points = generate_points(height, width, num_points)
 
-        results, _valid = classify(image_loc, files, points)
+        results, _valid, _feature_stored = classify(image_loc, files, points)
         for point in results:
             points_out.append(
                 {

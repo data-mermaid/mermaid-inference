@@ -70,7 +70,7 @@ def handler(event, context=None) -> dict:
                 key=req.feature_vector_output.key,
                 bucket_name=req.feature_vector_output.bucket,
             )
-        results, valid = classify(
+        outcome = classify(
             image_loc,
             files,
             [tuple(p) for p in req.points],
@@ -82,11 +82,12 @@ def handler(event, context=None) -> dict:
             classifier_type="pyspacer",
             classifier_version=version,
             contract_version=CONTRACT_VERSION,
-            point_results=results,
-            valid_rowcol=valid,
-            # classify() raises before returning if the write above fails, so
-            # reaching this line while a location was requested means it landed.
-            feature_vector_output=req.feature_vector_output,
+            point_results=outcome.point_results,
+            valid_rowcol=outcome.valid_rowcol,
+            # The feature-vector write is best-effort: point results have
+            # already succeeded by this point, so a failed or unrequested
+            # store reports no location rather than failing the response.
+            feature_vector_output=req.feature_vector_output if outcome.feature_stored else None,
             traceparent=req.traceparent,
         ).model_dump(mode="json")
     except Exception as exc:  # noqa: BLE001 — surface as a processing-error envelope
@@ -95,7 +96,7 @@ def handler(event, context=None) -> dict:
         # increment the Lambda Errors metric. Keep the token in sync with the
         # MetricFilter pattern in mermaid-api InferenceStack.
         logger.exception(
-            "[classify.processing_error] classify failed traceparent=%s", req.traceparent
+            "[classify.processing_error] classify failed traceparent=%r", req.traceparent
         )
         return ErrorEnvelope(
             error_code=ErrorCode.PROCESSING_ERROR,

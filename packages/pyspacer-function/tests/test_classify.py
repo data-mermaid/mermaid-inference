@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 import pyspacer_function.classify as classify_mod
-import pytest
 from PIL import Image
 from spacer.data_classes import ImageFeatures
 from spacer.messages import DataLocation
@@ -19,7 +18,7 @@ def test_classify_returns_full_sorted_scores(tmp_path, model_files, fake_extract
     points = [(10, 10), (20, 30)]
     vectors = {(10, 10): [3.0, 0.0, 0.0, 0.0], (20, 30): [0.0, 3.0, 0.0, 0.0]}
 
-    results, valid = classify(
+    results, valid, _feature_stored = classify(
         image_loc, model_files, points, extractor=fake_extractor_cls(vectors)
     )
 
@@ -43,7 +42,7 @@ def test_classify_legacy_scores_from_the_pickled_classifier(
     points = [(10, 10), (20, 30)]
     vectors = {(10, 10): [0.9, 0.1, 0.2, 0.3], (20, 30): [0.1, 0.9, 0.3, 0.2]}
 
-    results, valid = classify(
+    results, valid, _feature_stored = classify(
         image_loc, legacy_model_files, points, extractor=fake_extractor_cls(vectors)
     )
 
@@ -71,13 +70,15 @@ def test_classify_writes_features_that_round_trip_through_imagefeatures_load(
     vectors = {(10, 10): [3.0, 0.0, 0.0, 0.0], (20, 30): [0.0, 3.0, 0.0, 0.0]}
     feature_loc = DataLocation("filesystem", str(tmp_path / "out.featurevector"))
 
-    classify(
+    outcome = classify(
         image_loc,
         model_files,
         points,
         extractor=fake_extractor_cls(vectors),
         feature_output_loc=feature_loc,
     )
+
+    assert outcome.feature_stored is True
 
     loaded = ImageFeatures.load(feature_loc)
     assert loaded.valid_rowcol is True
@@ -98,34 +99,86 @@ def test_classify_writes_nothing_when_no_feature_output_loc(
     store_calls = []
     monkeypatch.setattr(ImageFeatures, "store", lambda self, loc: store_calls.append(loc))
 
-    classify(image_loc, model_files, points, extractor=fake_extractor_cls(vectors))
+    outcome = classify(image_loc, model_files, points, extractor=fake_extractor_cls(vectors))
 
     assert store_calls == []
+    assert outcome.feature_stored is False
 
 
-def test_classify_propagates_a_failing_feature_store(
-    tmp_path, model_files, fake_extractor_cls, monkeypatch
+def test_classify_tolerates_a_failing_feature_store(
+    tmp_path, model_files, fake_extractor_cls, caplog
 ):
     img_path = tmp_path / "img.png"
     Image.new("RGB", (64, 64), "white").save(img_path)
     image_loc = DataLocation("filesystem", str(img_path))
-    points = [(10, 10)]
-    vectors = {(10, 10): [3.0, 0.0, 0.0, 0.0]}
-    feature_loc = DataLocation("filesystem", str(tmp_path / "out.featurevector"))
+    points = [(10, 10), (20, 30)]
+    vectors = {(10, 10): [3.0, 0.0, 0.0, 0.0], (20, 30): [0.0, 3.0, 0.0, 0.0]}
 
-    def _raise(self, loc):
-        raise OSError("disk full")
+    # A regular file standing where the store expects a directory is a real,
+    # unmocked failure: FileSystemStorage.store creates missing parent dirs,
+    # so only a non-directory in the path actually breaks the write.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+    feature_loc = DataLocation("filesystem", str(blocker / "out.featurevector"))
 
-    monkeypatch.setattr(ImageFeatures, "store", _raise)
-
-    with pytest.raises(OSError, match="disk full"):
-        classify(
+    with caplog.at_level("ERROR"):
+        outcome = classify(
             image_loc,
             model_files,
             points,
             extractor=fake_extractor_cls(vectors),
             feature_output_loc=feature_loc,
         )
+
+    assert outcome.feature_stored is False
+    assert len(outcome.point_results) == 2
+    assert "[classify.feature_store_error]" in caplog.text
+    store_errors = [
+        r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()
+    ]
+    assert len(store_errors) == 1
+    assert "error=NotADirectoryError" in store_errors[0].getMessage()
+
+
+def test_classify_escapes_control_characters_in_the_logged_key(
+    tmp_path, model_files, fake_extractor_cls, caplog
+):
+    img_path = tmp_path / "img.png"
+    Image.new("RGB", (64, 64), "white").save(img_path)
+    image_loc = DataLocation("filesystem", str(img_path))
+    points = [(10, 10), (20, 30)]
+    vectors = {(10, 10): [3.0, 0.0, 0.0, 0.0], (20, 30): [0.0, 3.0, 0.0, 0.0]}
+
+    # The bucket and key both carry a newline and a forged marker line, so a
+    # log record split by either field would count as a fabricated event.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+    forged_bucket = "fb\n[classify.processing_error] forged by a crafted bucket"
+    forged_key = "out\n[classify.processing_error] forged.featurevector"
+    feature_loc = DataLocation(
+        "filesystem", str(blocker / forged_key), bucket_name=forged_bucket
+    )
+
+    with caplog.at_level("ERROR"):
+        outcome = classify(
+            image_loc,
+            model_files,
+            points,
+            extractor=fake_extractor_cls(vectors),
+            feature_output_loc=feature_loc,
+        )
+
+    assert outcome.feature_stored is False
+    store_errors = [
+        r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()
+    ]
+    assert len(store_errors) == 1
+    message = store_errors[0].getMessage()
+    # repr() escapes control characters, so a forged marker embedded in the
+    # bucket or key cannot start a second, fabricated log line.
+    assert "\n" not in message
+    assert "fb\\n[classify.processing_error] forged by a crafted bucket" in message
+    assert "out\\n[classify.processing_error] forged.featurevector" in message
 
 
 def test_classify_module_has_no_mermaid_classifier_import_at_module_scope():

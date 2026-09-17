@@ -12,9 +12,10 @@ def test_post_classify_returns_response(monkeypatch, tmp_path, make_model_dir):
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=1, col=1, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[PointResult(row=1, col=1, scores=[PointScore(label="a::", score=1.0)])],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 
