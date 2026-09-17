@@ -96,7 +96,7 @@ def handler(event, context=None) -> dict:
         # increment the Lambda Errors metric. Keep the token in sync with the
         # MetricFilter pattern in mermaid-api InferenceStack.
         logger.exception(
-            "[classify.processing_error] classify failed traceparent=%s", req.traceparent
+            "[classify.processing_error] classify failed traceparent=%r", req.traceparent
         )
         return ErrorEnvelope(
             error_code=ErrorCode.PROCESSING_ERROR,

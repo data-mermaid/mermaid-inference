@@ -68,9 +68,11 @@ def classify(
         try:
             features.store(feature_output_loc)
             feature_stored = True
-        except Exception:
+        except Exception as exc:
             logger.exception(
-                "[classify.feature_store_error] failed to store feature vector bucket=%s key=%s",
+                "[classify.feature_store_error] failed to store feature vector"
+                " error=%s bucket=%r key=%r",
+                type(exc).__name__,
                 feature_output_loc.bucket_name,
                 feature_output_loc.key,
             )

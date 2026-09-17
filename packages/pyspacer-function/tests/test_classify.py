@@ -133,6 +133,52 @@ def test_classify_tolerates_a_failing_feature_store(
     assert outcome.feature_stored is False
     assert len(outcome.point_results) == 2
     assert "[classify.feature_store_error]" in caplog.text
+    store_errors = [
+        r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()
+    ]
+    assert len(store_errors) == 1
+    assert "error=NotADirectoryError" in store_errors[0].getMessage()
+
+
+def test_classify_escapes_control_characters_in_the_logged_key(
+    tmp_path, model_files, fake_extractor_cls, caplog
+):
+    img_path = tmp_path / "img.png"
+    Image.new("RGB", (64, 64), "white").save(img_path)
+    image_loc = DataLocation("filesystem", str(img_path))
+    points = [(10, 10), (20, 30)]
+    vectors = {(10, 10): [3.0, 0.0, 0.0, 0.0], (20, 30): [0.0, 3.0, 0.0, 0.0]}
+
+    # The bucket and key both carry a newline and a forged marker line, so a
+    # log record split by either field would count as a fabricated event.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+    forged_bucket = "fb\n[classify.processing_error] forged by a crafted bucket"
+    forged_key = "out\n[classify.processing_error] forged.featurevector"
+    feature_loc = DataLocation(
+        "filesystem", str(blocker / forged_key), bucket_name=forged_bucket
+    )
+
+    with caplog.at_level("ERROR"):
+        outcome = classify(
+            image_loc,
+            model_files,
+            points,
+            extractor=fake_extractor_cls(vectors),
+            feature_output_loc=feature_loc,
+        )
+
+    assert outcome.feature_stored is False
+    store_errors = [
+        r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()
+    ]
+    assert len(store_errors) == 1
+    message = store_errors[0].getMessage()
+    # repr() escapes control characters, so a forged marker embedded in the
+    # bucket or key cannot start a second, fabricated log line.
+    assert "\n" not in message
+    assert "fb\\n[classify.processing_error] forged by a crafted bucket" in message
+    assert "out\\n[classify.processing_error] forged.featurevector" in message
 
 
 def test_classify_module_has_no_mermaid_classifier_import_at_module_scope():

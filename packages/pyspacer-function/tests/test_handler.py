@@ -195,6 +195,21 @@ def test_handler_processing_error_logs_metric_filter_marker(monkeypatch, tmp_pat
     assert "tp-marker" in caplog.text
 
 
+def test_handler_processing_error_marker_escapes_the_traceparent(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(tmp_path))  # no version dir present
+    monkeypatch.setenv("CLASSIFIER_VERSION", "missing")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+    forged_traceparent = "tp-evil\n[classify.processing_error] forged"
+    with caplog.at_level("ERROR"):
+        out = handler(_event(traceparent=forged_traceparent))
+    assert out["error_code"] == "processing_error"
+    marker_records = [r for r in caplog.records if "[classify.processing_error]" in r.getMessage()]
+    assert len(marker_records) == 1
+    # repr() escapes control characters, so a forged marker embedded in the
+    # traceparent cannot start a second, fabricated log line.
+    assert "\n" not in marker_records[0].getMessage()
+
+
 def test_handler_logs_traceparent_on_success(monkeypatch, tmp_path, make_model_dir, caplog):
     root = tmp_path / "models"
     make_model_dir(root / "v2")  # fixture writes a model.json whose trained_with matches runtime
