@@ -204,8 +204,8 @@ def test_handler_classify_exception_still_surfaces_as_processing_error(
 
     assert out["error_code"] == "processing_error"
     assert out["traceparent"] == "tp-classify-fail"
-    # A non-store failure must still surface through the outer handler except
-    # block, distinct from the feature-store path that classify() now absorbs.
+    # A non-store failure surfaces through the outer handler except block;
+    # classify() absorbs feature-store failures itself.
     assert out["message"] == "image load failed"
     assert "[classify.processing_error]" in caplog.text
 
