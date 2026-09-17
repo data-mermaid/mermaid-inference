@@ -29,9 +29,12 @@ def test_handler_returns_pyspacer_response(monkeypatch, tmp_path, make_model_dir
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 
@@ -55,9 +58,12 @@ def test_handler_reports_feature_vector_output_when_requested(
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=True,
         ),
     )
 
@@ -80,9 +86,12 @@ def test_handler_leaves_feature_vector_output_none_when_not_requested(
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 
@@ -90,7 +99,40 @@ def test_handler_leaves_feature_vector_output_none_when_not_requested(
     assert out["feature_vector_output"] is None
 
 
-def test_handler_feature_vector_write_failure_surfaces_as_processing_error(
+def test_handler_tolerates_feature_store_failure(monkeypatch, tmp_path, make_model_dir):
+    root = tmp_path / "models"
+    make_model_dir(root / "v2")
+    monkeypatch.setenv("LOCAL_MODELS_DIR", str(root))
+    monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
+    monkeypatch.delenv("CONFIG_BUCKET", raising=False)
+
+    def _classify_with_failed_store(*a, feature_output_loc=None, **k):
+        # The handler must forward the request's location through unchanged.
+        assert feature_output_loc is not None
+        assert feature_output_loc.bucket_name == "fb"
+        assert feature_output_loc.key == "features/out.featurevector"
+        return classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
+        )
+
+    monkeypatch.setattr(classify_mod, "classify", _classify_with_failed_store)
+
+    event = _event(traceparent="tp-fv-fail")
+    event["feature_vector_output"] = {"bucket": "fb", "key": "features/out.featurevector"}
+
+    out = handler(event)
+
+    assert "error_code" not in out
+    assert out["traceparent"] == "tp-fv-fail"
+    assert out["point_results"][0]["scores"][0]["label"] == "a::"
+    assert out["feature_vector_output"] is None
+
+
+def test_handler_classify_exception_still_surfaces_as_processing_error(
     monkeypatch, tmp_path, make_model_dir, caplog
 ):
     root = tmp_path / "models"
@@ -99,26 +141,22 @@ def test_handler_feature_vector_write_failure_surfaces_as_processing_error(
     monkeypatch.setenv("CLASSIFIER_VERSION", "v2")
     monkeypatch.delenv("CONFIG_BUCKET", raising=False)
 
-    def _classify_with_failing_store(*a, feature_output_loc=None, **k):
-        # The handler must forward the request's location through unchanged.
-        assert feature_output_loc is not None
-        assert feature_output_loc.bucket_name == "fb"
-        assert feature_output_loc.key == "features/out.featurevector"
-        raise RuntimeError("feature vector store failed")
+    def _classify_raises(*a, **k):
+        raise RuntimeError("image load failed")
 
-    monkeypatch.setattr(classify_mod, "classify", _classify_with_failing_store)
+    monkeypatch.setattr(classify_mod, "classify", _classify_raises)
 
-    event = _event(traceparent="tp-fv-fail")
+    event = _event(traceparent="tp-classify-fail")
     event["feature_vector_output"] = {"bucket": "fb", "key": "features/out.featurevector"}
 
     with caplog.at_level("ERROR"):
         out = handler(event)
 
     assert out["error_code"] == "processing_error"
-    assert out["traceparent"] == "tp-fv-fail"
-    # Confirms the RuntimeError from the store attempt propagated, not an
-    # earlier failure from a wrong/missing feature_output_loc forward.
-    assert out["message"] == "feature vector store failed"
+    assert out["traceparent"] == "tp-classify-fail"
+    # A non-store failure must still surface through the outer handler except
+    # block, distinct from the feature-store path that classify() now absorbs.
+    assert out["message"] == "image load failed"
     assert "[classify.processing_error]" in caplog.text
 
 
@@ -167,9 +205,12 @@ def test_handler_logs_traceparent_on_success(monkeypatch, tmp_path, make_model_d
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 
@@ -212,9 +253,12 @@ def test_handler_stamps_contract_version(monkeypatch, tmp_path, make_model_dir):
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="a::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 
@@ -263,9 +307,12 @@ def test_handler_legacy_format_succeeds_without_model_json(
     monkeypatch.setattr(
         classify_mod,
         "classify",
-        lambda *a, **k: (
-            [PointResult(row=10, col=10, scores=[PointScore(label="1111::", score=1.0)])],
-            True,
+        lambda *a, **k: classify_mod.ClassifyOutcome(
+            point_results=[
+                PointResult(row=10, col=10, scores=[PointScore(label="1111::", score=1.0)])
+            ],
+            valid_rowcol=True,
+            feature_stored=False,
         ),
     )
 

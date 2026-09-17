@@ -7,7 +7,9 @@ s3/filesystem/memory storage identically — which is what makes it testable
 without AWS."""
 from __future__ import annotations
 
+import logging
 from operator import itemgetter
+from typing import NamedTuple
 
 import numpy as np
 from spacer.extractors import EfficientNetExtractor
@@ -19,6 +21,14 @@ from mermaid_inference_contract import PointResult, PointScore
 
 from pyspacer_function.resolver import LegacyModelFiles, ModelFiles
 
+logger = logging.getLogger(__name__)
+
+
+class ClassifyOutcome(NamedTuple):
+    point_results: list[PointResult]
+    valid_rowcol: bool
+    feature_stored: bool  # False when no location was requested, or the write failed
+
 
 def classify(
     image_loc,
@@ -27,10 +37,11 @@ def classify(
     *,
     extractor=None,
     feature_output_loc: DataLocation | None = None,
-):
-    """Classify each point. Returns (point_results, valid_rowcol). When
-    feature_output_loc is given, the extracted features are persisted there
-    once predict succeeds."""
+) -> ClassifyOutcome:
+    """Classify each point. When feature_output_loc is given, the extracted
+    features are persisted there once predict succeeds; nothing downstream
+    reads that artifact back, so a failed write is logged and reported through
+    feature_stored rather than raised."""
     points = [(int(r), int(c)) for r, c in points]
 
     image = load_image(image_loc)
@@ -52,8 +63,17 @@ def classify(
     # Persisted only once predict succeeds, so a failed classify leaves no
     # orphan feature-vector object — store() writes the same np.savez_compressed
     # archive (meta/rows/cols/feat) that ImageFeatures.load() reads back.
+    feature_stored = False
     if feature_output_loc is not None:
-        features.store(feature_output_loc)
+        try:
+            features.store(feature_output_loc)
+            feature_stored = True
+        except Exception:
+            logger.exception(
+                "[classify.feature_store_error] failed to store feature vector bucket=%s key=%s",
+                feature_output_loc.bucket_name,
+                feature_output_loc.key,
+            )
 
     results = []
     for (row, col), point_proba in zip(points, proba):
@@ -65,7 +85,9 @@ def classify(
                 scores=[PointScore(label=label, score=float(s)) for label, s in scored],
             )
         )
-    return results, features.valid_rowcol
+    return ClassifyOutcome(
+        point_results=results, valid_rowcol=features.valid_rowcol, feature_stored=feature_stored
+    )
 
 
 def _predict_graph(files: ModelFiles, features, points):
