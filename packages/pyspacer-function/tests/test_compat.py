@@ -93,3 +93,43 @@ def test_check_legacy_pins_default_path_resolves_and_parses_the_shipped_file():
     assert compat._LEGACY_PINS.exists()
     pins = compat._parse_pins(compat._LEGACY_PINS)
     assert pins  # the shipped file pins at least one package
+
+
+# ---- PEP 440 local segments ------------------------------------------------
+#
+# Training builds linux/amd64 and takes torch from PyTorch's CPU wheel index,
+# which stamps +cpu. This image builds linux/arm64, where PyPI's aarch64 wheels
+# are already CPU-only and carry no local segment. Comparing the two as strings
+# refuses every SageMaker-trained artifact.
+
+
+def test_a_local_segment_is_not_a_mismatch(tmp_path):
+    rv = _runtime_versions()
+    rv["torch"] = rv["torch"].split("+", 1)[0] + "+cpu"
+    compat.check_compatibility(_manifest(tmp_path, rv))  # no raise
+
+
+def test_the_released_v2_provenance_shape_passes(tmp_path):
+    # v2's released model.json records torch "2.8.0+cpu"; once the pyspacer key
+    # the release gate now requires is present, that artifact has to serve on
+    # the arm64 runtime rather than be refused for its wheel tag.
+    rv = _runtime_versions()
+    rv["torch"] = "2.8.0+cpu"
+    if rv["torch"].split("+", 1)[0] != _runtime_versions()["torch"].split("+", 1)[0]:
+        pytest.skip("runtime torch is no longer 2.8.x; the v2 shape no longer applies")
+    compat.check_compatibility(_manifest(tmp_path, rv))  # no raise
+
+
+def test_a_different_public_version_still_raises(tmp_path):
+    # Only the local segment is ignored; this must not have become "anything
+    # goes".
+    rv = _runtime_versions()
+    rv["torch"] = "1.0.0+cpu"
+    with pytest.raises(RuntimeError, match="torch"):
+        compat.check_compatibility(_manifest(tmp_path, rv))
+
+
+def test_legacy_pins_ignore_a_local_segment_too(tmp_path):
+    pins = _installed("scikit-learn")
+    pins["scikit-learn"] = pins["scikit-learn"] + "+cpu"
+    compat.check_legacy_pins(_pins_file(tmp_path, pins))  # no raise

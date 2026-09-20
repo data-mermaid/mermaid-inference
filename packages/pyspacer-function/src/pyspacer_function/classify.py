@@ -4,14 +4,23 @@ branch only on the predict half — "graph" runs the portable TorchScript head v
 load_predictor, "legacy" runs the pickled scikit-learn classifier through
 pyspacer's own loader. Takes pyspacer DataLocations, so it runs over
 s3/filesystem/memory storage identically — which is what makes it testable
-without AWS."""
+without AWS.
+
+A head is fitted to feature vectors, so on the graph lane the extractor is
+checked against the one model.json records before its output reaches the head.
+Extracting with a different geometry produces different labels at comparable
+confidence and raises nothing, so this is the only place that failure is
+visible. An artifact cut before that block existed is served with a warning
+rather than refused, so adding the check does not retire the versions already
+released."""
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Sequence
 from operator import itemgetter
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 from spacer.data_classes import ImageFeatures
@@ -23,6 +32,9 @@ from spacer.task_utils import check_extract_inputs
 from mermaid_inference_contract import PointResult, PointScore
 
 from pyspacer_function.resolver import LegacyModelFiles, ModelFiles
+
+if TYPE_CHECKING:
+    from mermaid_classifier.pyspacer.inference import ExtractorSpec
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +58,7 @@ def classify(
     reads that artifact back, so a failed write is logged and reported through
     feature_stored rather than raised."""
     points = [(int(r), int(c)) for r, c in points]
+    spec = _recorded_extractor(files)
 
     image = load_image(image_loc)
     check_extract_inputs(image, points, image_loc.key)  # pyright: ignore[reportArgumentType]  # pyspacer stubs use PIL.Image module, not PIL.Image.Image
@@ -54,7 +67,12 @@ def classify(
         extractor = EfficientNetExtractor(
             data_locations=dict(weights=DataLocation("filesystem", str(files.efficientnet_pt)))
         )
+    if spec is not None:
+        spec.check_extractor(extractor)
+
     features, _ = extractor(image, points)  # pyright: ignore[reportArgumentType]  # same PIL stub issue
+    if spec is not None:
+        spec.check_feature_dim(features.feature_dim)
 
     if isinstance(files, LegacyModelFiles):
         labels, proba = _predict_legacy(files, features, points)
@@ -95,6 +113,37 @@ def classify(
     return ClassifyOutcome(
         point_results=results, valid_rowcol=features.valid_rowcol, feature_stored=feature_stored
     )
+
+
+def _recorded_extractor(files: ModelFiles | LegacyModelFiles) -> ExtractorSpec | None:
+    """The extractor model.json records, or None when nothing records one.
+
+    None on the legacy lane, whose pickle carries no manifest, and on a graph
+    artifact cut before the block existed — v2 is one, so refusing would take
+    a released version out of service to add a check it predates. The gap is
+    logged rather than guessed at. A block that is present but malformed still
+    raises, as does one that disagrees with the live extractor.
+
+    Imported inside the branch, as with load_predictor below: the legacy image
+    installs no mermaid-classifier.
+    """
+    if not isinstance(files, ModelFiles):
+        return None
+
+    from mermaid_classifier.pyspacer.inference import MANIFEST_KEY, ExtractorSpec
+
+    manifest = json.loads(files.model_json.read_text())
+    if MANIFEST_KEY not in manifest:
+        # Stable marker, like the two tokens handler.py owns: a CloudWatch
+        # metric filter can count artifacts still serving unverified.
+        logger.warning(
+            "[classify.unverified_extractor] model.json has no %r block;"
+            " serving without checking the extractor that produced its"
+            " training features",
+            MANIFEST_KEY,
+        )
+        return None
+    return ExtractorSpec.from_manifest(manifest)
 
 
 def _predict_graph(

@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pyspacer_function.classify as classify_mod
+import pytest
 from PIL import Image
 from spacer.data_classes import ImageFeatures
 from spacer.messages import DataLocation
@@ -212,3 +213,127 @@ def test_classify_module_reloads_with_mermaid_classifier_import_blocked(monkeypa
             importlib.reload(classify_mod)  # must succeed with the import blocked
     finally:
         importlib.reload(classify_mod)  # restore normal state for the rest of the suite
+
+
+# ---- the extractor the manifest records must be the one that runs ----------
+#
+# A head is fitted to feature vectors. Extracting with different geometry
+# produces different labels at comparable confidence and raises nothing, so
+# without these checks the failure is invisible in every log and metric.
+
+
+def _image_and_points(tmp_path):
+    img_path = tmp_path / "img.png"
+    Image.new("RGB", (64, 64), "white").save(img_path)
+    return DataLocation("filesystem", str(img_path)), [(10, 10)]
+
+
+def test_classify_serves_a_pre_contract_manifest_and_says_so(
+    tmp_path, model_files, fake_extractor_cls, caplog
+):
+    # v2 was released before the block existed. Refusing would retire a live
+    # version to add a check it predates, so the gap is recorded and served.
+    import json
+
+    manifest = json.loads(model_files.model_json.read_text())
+    del manifest["feature_extraction"]
+    model_files.model_json.write_text(json.dumps(manifest))
+
+    image_loc, points = _image_and_points(tmp_path)
+    with caplog.at_level("WARNING"):
+        results, valid, _ = classify(
+            image_loc,
+            model_files,
+            points,
+            extractor=fake_extractor_cls({(10, 10): [3.0, 0.0, 0.0, 0.0]}),
+        )
+
+    assert valid is True
+    assert len(results) == 1
+    assert "[classify.unverified_extractor]" in caplog.text
+
+
+def test_classify_refuses_a_malformed_extractor_block(tmp_path, model_files, fake_extractor_cls):
+    # Present but unreadable is a different thing from absent: something wrote
+    # it, so serving past it would be ignoring a claim rather than a gap.
+    import json
+
+    from mermaid_classifier.pyspacer.inference import ManifestError
+
+    manifest = json.loads(model_files.model_json.read_text())
+    manifest["feature_extraction"] = {"crop_size": 224}
+    model_files.model_json.write_text(json.dumps(manifest))
+
+    image_loc, points = _image_and_points(tmp_path)
+    with pytest.raises(ManifestError):
+        classify(
+            image_loc,
+            model_files,
+            points,
+            extractor=fake_extractor_cls({(10, 10): [1.0, 0.0, 0.0, 0.0]}),
+        )
+
+
+def test_classify_refuses_an_extractor_with_a_different_crop(
+    tmp_path, model_files, fake_extractor_cls
+):
+    from mermaid_classifier.pyspacer.inference import ExtractorMismatchError
+
+    class _SmallCrop(fake_extractor_cls):
+        CROP_SIZE = 64
+
+    image_loc, points = _image_and_points(tmp_path)
+    with pytest.raises(ExtractorMismatchError, match="crop_size"):
+        classify(
+            image_loc,
+            model_files,
+            points,
+            extractor=_SmallCrop({(10, 10): [1.0, 0.0, 0.0, 0.0]}),
+        )
+
+
+def test_classify_refuses_features_of_the_wrong_width(tmp_path, model_files, fake_extractor_cls):
+    # Right extractor class and crop, wrong output width: the head would
+    # otherwise be handed a batch it was never fitted to.
+    from mermaid_classifier.pyspacer.inference import ExtractorMismatchError
+
+    image_loc, points = _image_and_points(tmp_path)
+    with pytest.raises(ExtractorMismatchError, match="feature_dim"):
+        classify(
+            image_loc,
+            model_files,
+            points,
+            extractor=fake_extractor_cls({(10, 10): [1.0, 0.0]}),
+        )
+
+
+def test_classify_accepts_the_extractor_the_manifest_records(
+    tmp_path, model_files, fake_extractor_cls
+):
+    # The mirror of the three above: the checks must not reject the fixture
+    # that does match, or they would only ever be proven by their failures.
+    image_loc, points = _image_and_points(tmp_path)
+    results, valid, _ = classify(
+        image_loc,
+        model_files,
+        points,
+        extractor=fake_extractor_cls({(10, 10): [3.0, 0.0, 0.0, 0.0]}),
+    )
+    assert valid is True
+    assert len(results) == 1
+
+
+def test_classify_legacy_has_no_manifest_to_check_against(
+    tmp_path, legacy_model_files, legacy_classes, fake_extractor_cls
+):
+    # The Beta pickle ships without a manifest, so the graph lane's gate must
+    # not fire on it — check_legacy_pins covers that lane instead.
+    image_loc, points = _image_and_points(tmp_path)
+    results, valid, _ = classify(
+        image_loc,
+        legacy_model_files,
+        points,
+        extractor=fake_extractor_cls({(10, 10): [0.9, 0.1, 0.2, 0.3]}),
+    )
+    assert valid is True
+    assert results[0].scores[0].label == legacy_classes[0]
