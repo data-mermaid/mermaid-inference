@@ -1,0 +1,112 @@
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel in-progress runs when a PR is updated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ruff + basedpyright (Linux, Python 3.12)
+    # Matches the arm64 image the function ships as (build-push.yml), so torch
+    # resolves its CPU-only aarch64 wheel here too instead of the CUDA build.
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Harden the runner (Audit outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+        with:
+          # Under audit, this list is advisory: calls are recorded, not blocked.
+          # `block` is what would enforce it.
+          egress-policy: audit
+          # torch (via mermaid-classifier[inference], pyspacer-function's sibling
+          # dependency) resolves from files.pythonhosted.org, same as any other
+          # PyPI wheel.
+          # release-assets.githubusercontent.com / objects.githubusercontent.com:
+          # cover uv's managed-Python download path, which release-asset
+          # requests to github.com redirect to.
+          allowed-endpoints: >
+            github.com:443
+            raw.githubusercontent.com:443
+            releases.astral.sh:443
+            results-receiver.actions.githubusercontent.com:443
+            *.blob.core.windows.net:443
+            pypi.org:443
+            files.pythonhosted.org:443
+            release-assets.githubusercontent.com:443
+            objects.githubusercontent.com:443
+
+      - id: cls
+        name: Resolve mermaid-classifier ref
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          REF="${HEAD_REF:-main}"
+          if [ "$REF" != "main" ] && ! git ls-remote --exit-code --heads \
+               https://github.com/data-mermaid/mermaid-classifier "$REF" >/dev/null 2>&1; then
+            REF=main
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout mermaid-inference
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        with:
+          path: mermaid-inference
+          persist-credentials: false
+
+      # basedpyright must resolve `mermaid_classifier` (pyspacer-function's
+      # editable path dep at ../../../mermaid-classifier) to type-check it.
+      - name: Checkout mermaid-classifier (sibling dependency)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        with:
+          repository: data-mermaid/mermaid-classifier
+          ref: ${{ steps.cls.outputs.ref }}
+          path: mermaid-classifier
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install workspace with lint group
+        working-directory: mermaid-inference
+        # --all-packages: a bare `uv sync` at this virtual root only syncs the
+        # root project's own groups, not the member packages — basedpyright
+        # needs both packages' real deps (torch, mermaid_classifier, fastapi)
+        # installed to resolve their imports.
+        # --frozen fails CI if uv.lock is out of sync with pyproject.toml.
+        run: uv sync --frozen --all-packages --group lint
+
+      - name: Check lockfile is in sync
+        working-directory: mermaid-inference
+        run: uv lock --check
+
+      - name: Ruff lint (mermaid-inference-contract)
+        working-directory: mermaid-inference/packages/mermaid-inference-contract
+        run: uv run --no-sync ruff check .
+
+      - name: Ruff format check (mermaid-inference-contract)
+        working-directory: mermaid-inference/packages/mermaid-inference-contract
+        run: uv run --no-sync ruff format --check .
+
+      - name: Ruff lint (pyspacer-function)
+        working-directory: mermaid-inference/packages/pyspacer-function
+        run: uv run --no-sync ruff check .
+
+      - name: Ruff format check (pyspacer-function)
+        working-directory: mermaid-inference/packages/pyspacer-function
+        run: uv run --no-sync ruff format --check .
+
+      - name: basedpyright (strict)
+        working-directory: mermaid-inference
+        run: uv run --no-sync basedpyright

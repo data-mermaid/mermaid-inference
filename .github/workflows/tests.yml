@@ -1,0 +1,136 @@
+name: Tests
+
+on:
+  pull_request:
+
+# Cancel in-progress runs when a PR is updated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Pure-pydantic contract suite: torch-free, so this signal lands without
+  # waiting on the function job's much heavier install. `uv sync --package`
+  # scopes the sync to this one workspace member, which never resolves
+  # pyspacer-function's sibling mermaid-classifier path dep — verified by
+  # running this sync with that sibling checkout absent.
+  contract:
+    name: pytest contract (Linux, Python 3.12)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+        with:
+          # Under audit, this list is advisory: calls are recorded, not blocked.
+          # `block` is what would enforce it.
+          egress-policy: audit
+          allowed-endpoints: >
+            github.com:443
+            raw.githubusercontent.com:443
+            releases.astral.sh:443
+            results-receiver.actions.githubusercontent.com:443
+            *.blob.core.windows.net:443
+            pypi.org:443
+            files.pythonhosted.org:443
+            release-assets.githubusercontent.com:443
+            objects.githubusercontent.com:443
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install contract package only
+        # Scoped to one workspace member so this job never pulls torch.
+        run: uv sync --frozen --package mermaid-inference-contract
+
+      - name: Run contract tests
+        run: uv run --no-sync pytest packages/mermaid-inference-contract/tests/
+
+  # pyspacer classifier compute lane: pulls torch via mermaid-classifier[inference],
+  # so it runs as its own job/process rather than sharing one with the contract suite.
+  function:
+    name: pytest function (Linux, Python 3.12)
+    # Matches the arm64 image the function ships as (build-push.yml), so torch
+    # resolves its CPU-only aarch64 wheel here too instead of the CUDA build.
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Harden the runner (Audit outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+        with:
+          # Under audit, this list is advisory: calls are recorded, not blocked.
+          # `block` is what would enforce it.
+          egress-policy: audit
+          # torch (via mermaid-classifier[inference], pyspacer-function's sibling
+          # dependency) resolves from files.pythonhosted.org, same as any other
+          # PyPI wheel.
+          # release-assets.githubusercontent.com / objects.githubusercontent.com:
+          # cover uv's managed-Python download path, which release-asset
+          # requests to github.com redirect to.
+          allowed-endpoints: >
+            github.com:443
+            raw.githubusercontent.com:443
+            releases.astral.sh:443
+            results-receiver.actions.githubusercontent.com:443
+            *.blob.core.windows.net:443
+            pypi.org:443
+            files.pythonhosted.org:443
+            release-assets.githubusercontent.com:443
+            objects.githubusercontent.com:443
+
+      - id: cls
+        name: Resolve mermaid-classifier ref
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          REF="${HEAD_REF:-main}"
+          if [ "$REF" != "main" ] && ! git ls-remote --exit-code --heads \
+               https://github.com/data-mermaid/mermaid-classifier "$REF" >/dev/null 2>&1; then
+            REF=main
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout mermaid-inference
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        with:
+          path: mermaid-inference
+          persist-credentials: false
+
+      - name: Checkout mermaid-classifier (sibling dependency)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        with:
+          repository: data-mermaid/mermaid-classifier
+          ref: ${{ steps.cls.outputs.ref }}
+          path: mermaid-classifier
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install function package
+        working-directory: mermaid-inference
+        # --package pulls its full dependency set (torch, mermaid-classifier[inference],
+        # fastapi, …); a bare `uv sync` at the virtual root would sync only the
+        # root project's own groups and leave those uninstalled.
+        run: uv sync --frozen --package pyspacer-function
+
+      # Self-contained: its conftest builds a TorchScript head, a real prefit
+      # CalibratedClassifierCV, a FakeExtractor and a fake S3 client, so it
+      # needs no AWS credentials and no network.
+      - name: Run function tests
+        working-directory: mermaid-inference
+        run: uv run --no-sync pytest packages/pyspacer-function/tests/

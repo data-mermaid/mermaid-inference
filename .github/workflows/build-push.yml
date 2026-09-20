@@ -29,7 +29,10 @@ jobs:
   build-push:
     runs-on: ubuntu-24.04-arm  # native arm64 build (image is FROM linux/arm64)
     steps:
-      - uses: actions/checkout@v4
+      # No `persist-credentials: false` here (unlike other workflows in this repo):
+      # the "Push release git tag" step below pushes with the credential this
+      # checkout persists. Do not add it.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Compute image tag
         id: tag
@@ -60,12 +63,12 @@ jobs:
             exit 1
           fi
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4.3.1
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/mermaid-inference-image-push-role
           aws-region: us-east-1
 
-      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd  # v2.1.7
         id: ecr
 
       - name: Build image

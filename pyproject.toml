@@ -13,6 +13,7 @@ package = false
 # resolves from the repo root (and from any member dir).
 [dependency-groups]
 dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6"]
+lint = ["ruff", "basedpyright"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -24,3 +25,26 @@ members = ["packages/*"]
 # collect both trees in one invocation. Run each package's tests separately
 # (see README "Development").
 testpaths = ["packages/mermaid-inference-contract/tests"]
+
+[tool.basedpyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+include = ["packages/mermaid-inference-contract/src", "packages/pyspacer-function/src"]
+exclude = ["**/tests", "**/.venv", "**/__pycache__"]
+reportMissingTypeStubs = false
+# Disable the basedpyright-only aggressive tier layered on top of upstream
+# pyright "strict" — too noisy for a torch/numpy/duckdb/mlflow codebase.
+# (See design doc; signed off as out of scope.)
+reportAny = false
+reportExplicitAny = false
+reportUnusedCallResult = false
+reportImplicitStringConcatenation = false
+reportUnusedParameter = false
+# Untyped-dependency leakage: torch/pyspacer/duckdb/mlflow/sklearn ship no
+# stubs, so their return values propagate as Unknown. Enforcing these would be
+# ~1,400 noise-only ignores. Real-bug checks and own-signature annotation
+# requirements stay ON. (Pragmatic-strict decision — see plan Global Constraints.)
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
