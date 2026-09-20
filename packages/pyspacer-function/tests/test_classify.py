@@ -234,15 +234,42 @@ def _image_and_points(tmp_path):
     return DataLocation("filesystem", str(img_path)), [(10, 10)]
 
 
-def test_classify_refuses_a_manifest_without_the_extractor_block(
+def test_classify_serves_a_pre_contract_manifest_and_says_so(
+    tmp_path, model_files, fake_extractor_cls, caplog
+):
+    # v2 was released before the block existed. Refusing would retire a live
+    # version to add a check it predates, so the gap is recorded and served.
+    import json
+
+    manifest = json.loads(model_files.model_json.read_text())
+    del manifest["feature_extraction"]
+    model_files.model_json.write_text(json.dumps(manifest))
+
+    image_loc, points = _image_and_points(tmp_path)
+    with caplog.at_level("WARNING"):
+        results, valid, _ = classify(
+            image_loc,
+            model_files,
+            points,
+            extractor=fake_extractor_cls({(10, 10): [3.0, 0.0, 0.0, 0.0]}),
+        )
+
+    assert valid is True
+    assert len(results) == 1
+    assert "[classify.unverified_extractor]" in caplog.text
+
+
+def test_classify_refuses_a_malformed_extractor_block(
     tmp_path, model_files, fake_extractor_cls
 ):
+    # Present but unreadable is a different thing from absent: something wrote
+    # it, so serving past it would be ignoring a claim rather than a gap.
     import json
 
     from mermaid_classifier.pyspacer.inference import ManifestError
 
     manifest = json.loads(model_files.model_json.read_text())
-    del manifest["feature_extraction"]
+    manifest["feature_extraction"] = {"crop_size": 224}
     model_files.model_json.write_text(json.dumps(manifest))
 
     image_loc, points = _image_and_points(tmp_path)

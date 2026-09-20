@@ -10,7 +10,9 @@ A head is fitted to feature vectors, so on the graph lane the extractor is
 checked against the one model.json records before its output reaches the head.
 Extracting with a different geometry produces different labels at comparable
 confidence and raises nothing, so this is the only place that failure is
-visible."""
+visible. An artifact cut before that block existed is served with a warning
+rather than refused, so adding the check does not retire the versions already
+released."""
 from __future__ import annotations
 
 import json
@@ -106,12 +108,13 @@ def classify(
 
 
 def _recorded_extractor(files: ModelFiles | LegacyModelFiles):
-    """The extractor model.json records, or None on the legacy lane.
+    """The extractor model.json records, or None when nothing records one.
 
-    ManifestError when a graph artifact omits the block: one cut before this
-    contract existed cannot say what produced its training features, and
-    serving it would be the guess the contract exists to remove. The legacy
-    pickle carries no manifest at all, so there is nothing to check.
+    None on the legacy lane, whose pickle carries no manifest, and on a graph
+    artifact cut before the block existed — v2 is one, so refusing would take
+    a released version out of service to add a check it predates. The gap is
+    logged rather than guessed at. A block that is present but malformed still
+    raises, as does one that disagrees with the live extractor.
 
     Imported inside the branch, as with load_predictor below: the legacy image
     installs no mermaid-classifier.
@@ -119,9 +122,20 @@ def _recorded_extractor(files: ModelFiles | LegacyModelFiles):
     if not isinstance(files, ModelFiles):
         return None
 
-    from mermaid_classifier.pyspacer.inference import ExtractorSpec
+    from mermaid_classifier.pyspacer.inference import MANIFEST_KEY, ExtractorSpec
 
-    return ExtractorSpec.from_manifest(json.loads(files.model_json.read_text()))
+    manifest = json.loads(files.model_json.read_text())
+    if MANIFEST_KEY not in manifest:
+        # Stable marker, like the two tokens handler.py owns: a CloudWatch
+        # metric filter can count artifacts still serving unverified.
+        logger.warning(
+            "[classify.unverified_extractor] model.json has no %r block;"
+            " serving without checking the extractor that produced its"
+            " training features",
+            MANIFEST_KEY,
+        )
+        return None
+    return ExtractorSpec.from_manifest(manifest)
 
 
 def _predict_graph(files: ModelFiles, features, points):
