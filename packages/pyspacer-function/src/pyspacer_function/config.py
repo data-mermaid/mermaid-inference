@@ -1,4 +1,5 @@
 """Environment-driven settings for the pyspacer inference function."""
+
 import os
 
 _FORMATS = ("graph", "legacy")

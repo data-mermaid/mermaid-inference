@@ -28,6 +28,11 @@ packages = ["src/pyspacer_function"]
 line-length = 100
 src = ["src", "tests"]
 
+[tool.ruff.lint.per-file-ignores]
+# /tmp env-var bootstrap (TORCH_HOME, MPLCONFIGDIR, ...) must precede the
+# imports below it; see the module docstring for the cold-start discipline.
+"src/pyspacer_function/handler.py" = ["E402"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = [

@@ -16,7 +16,11 @@ def _runtime_versions():
     from importlib.metadata import version
     import torch
 
-    return {"torch": torch.__version__, "sklearn": version("scikit-learn"), "pyspacer": version("pyspacer")}
+    return {
+        "torch": torch.__version__,
+        "sklearn": version("scikit-learn"),
+        "pyspacer": version("pyspacer"),
+    }
 
 
 def test_compatible_manifest_passes(tmp_path):

@@ -27,9 +27,9 @@ def test_classify_returns_full_sorted_scores(tmp_path, model_files, fake_extract
     for pr in results:
         labels = [s.label for s in pr.scores]
         scores = [s.score for s in pr.scores]
-        assert set(labels) == {"a::", "b::", "c::"}      # full per-class list
-        assert scores == sorted(scores, reverse=True)     # descending
-        assert abs(sum(scores) - 1.0) < 1e-5              # softmax probabilities
+        assert set(labels) == {"a::", "b::", "c::"}  # full per-class list
+        assert scores == sorted(scores, reverse=True)  # descending
+        assert abs(sum(scores) - 1.0) < 1e-5  # softmax probabilities
     assert (results[0].row, results[0].col) == (10, 10)
 
 
@@ -133,9 +133,7 @@ def test_classify_tolerates_a_failing_feature_store(
     assert outcome.feature_stored is False
     assert len(outcome.point_results) == 2
     assert "[classify.feature_store_error]" in caplog.text
-    store_errors = [
-        r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()
-    ]
+    store_errors = [r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()]
     assert len(store_errors) == 1
     assert "error=NotADirectoryError" in store_errors[0].getMessage()
 
@@ -155,9 +153,7 @@ def test_classify_escapes_control_characters_in_the_logged_key(
     blocker.write_text("not a directory")
     forged_bucket = "fb\n[classify.processing_error] forged by a crafted bucket"
     forged_key = "out\n[classify.processing_error] forged.featurevector"
-    feature_loc = DataLocation(
-        "filesystem", str(blocker / forged_key), bucket_name=forged_bucket
-    )
+    feature_loc = DataLocation("filesystem", str(blocker / forged_key), bucket_name=forged_bucket)
 
     with caplog.at_level("ERROR"):
         outcome = classify(
@@ -169,9 +165,7 @@ def test_classify_escapes_control_characters_in_the_logged_key(
         )
 
     assert outcome.feature_stored is False
-    store_errors = [
-        r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()
-    ]
+    store_errors = [r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()]
     assert len(store_errors) == 1
     message = store_errors[0].getMessage()
     # repr() escapes control characters, so a forged marker embedded in the

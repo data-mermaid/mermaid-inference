@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, Union
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -40,7 +40,7 @@ ClassifyResponse = Annotated[
 _response_adapter: TypeAdapter[PyspacerResponse] = TypeAdapter(ClassifyResponse)
 
 
-def parse_classify_response(data: dict | str | bytes) -> PyspacerResponse:
+def parse_classify_response(data: dict[str, Any] | str | bytes) -> PyspacerResponse:
     """Validate a raw response and route it by classifier_type. Raises
     pydantic ValidationError on an unknown/missing classifier_type or bad fields."""
     if isinstance(data, (str, bytes)):

@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, Union
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -25,7 +25,7 @@ ClassifyRequest = Annotated[
 _request_adapter: TypeAdapter[PyspacerRequest] = TypeAdapter(ClassifyRequest)
 
 
-def parse_classify_request(data: dict | str | bytes) -> PyspacerRequest:
+def parse_classify_request(data: dict[str, Any] | str | bytes) -> PyspacerRequest:
     """Validate a raw request and route it by classifier_type. Raises
     pydantic ValidationError on an unknown/missing classifier_type or bad fields."""
     if isinstance(data, (str, bytes)):
