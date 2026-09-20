@@ -5,13 +5,16 @@ load_predictor, "legacy" runs the pickled scikit-learn classifier through
 pyspacer's own loader. Takes pyspacer DataLocations, so it runs over
 s3/filesystem/memory storage identically — which is what makes it testable
 without AWS."""
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from operator import itemgetter
 from typing import NamedTuple
 
 import numpy as np
+from spacer.data_classes import ImageFeatures
 from spacer.extractors import EfficientNetExtractor
 from spacer.messages import DataLocation
 from spacer.storage import load_classifier, load_image
@@ -31,11 +34,11 @@ class ClassifyOutcome(NamedTuple):
 
 
 def classify(
-    image_loc,
+    image_loc: DataLocation,
     files: ModelFiles | LegacyModelFiles,
-    points,
+    points: Sequence[Sequence[int]],
     *,
-    extractor=None,
+    extractor: EfficientNetExtractor | None = None,
     feature_output_loc: DataLocation | None = None,
 ) -> ClassifyOutcome:
     """Classify each point. When feature_output_loc is given, the extracted
@@ -45,15 +48,13 @@ def classify(
     points = [(int(r), int(c)) for r, c in points]
 
     image = load_image(image_loc)
-    check_extract_inputs(image, points, image_loc.key)
+    check_extract_inputs(image, points, image_loc.key)  # pyright: ignore[reportArgumentType]  # pyspacer stubs use PIL.Image module, not PIL.Image.Image
 
     if extractor is None:
         extractor = EfficientNetExtractor(
-            data_locations=dict(
-                weights=DataLocation("filesystem", str(files.efficientnet_pt))
-            )
+            data_locations=dict(weights=DataLocation("filesystem", str(files.efficientnet_pt)))
         )
-    features, _ = extractor(image, points)
+    features, _ = extractor(image, points)  # pyright: ignore[reportArgumentType]  # same PIL stub issue
 
     if isinstance(files, LegacyModelFiles):
         labels, proba = _predict_legacy(files, features, points)
@@ -92,7 +93,9 @@ def classify(
     )
 
 
-def _predict_graph(files: ModelFiles, features, points):
+def _predict_graph(
+    files: ModelFiles, features: ImageFeatures, points: list[tuple[int, int]]
+) -> tuple[list[str], list[list[float]]]:
     """Batched scoring through the portable artifact's TorchScript head."""
     # mermaid-classifier is absent from the legacy image, so this loader is
     # imported inside the branch that uses it.
@@ -103,14 +106,18 @@ def _predict_graph(files: ModelFiles, features, points):
     return list(predictor.classes), predictor.predict_proba(batch).tolist()
 
 
-def _predict_legacy(files: LegacyModelFiles, features, points):
+def _predict_legacy(
+    files: LegacyModelFiles, features: ImageFeatures, points: list[tuple[int, int]]
+) -> tuple[list[str], list[list[float]]]:
     """One predict_proba per point over its own (1, 1280) float64 row, as
     spacer.tasks.classify_features does: batch size changes BLAS reduction
     order, and these scores must reproduce the in-process baseline to within
     1e-5. load_classifier is lru_cached, so warm invocations reuse the
     classifier."""
     clf = load_classifier(DataLocation("filesystem", str(files.classifier_pkl)))
-    proba = [
-        clf.predict_proba(features.get_array((row, col))).tolist()[0] for row, col in points
-    ]
-    return [str(c) for c in clf.classes_], proba
+    proba = [clf.predict_proba(features.get_array((row, col))).tolist()[0] for row, col in points]
+    classes = clf.classes_
+    assert (
+        classes is not None
+    )  # a stored classifier is always fitted (store_classifier requires it)
+    return [str(c) for c in classes], proba

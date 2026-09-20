@@ -27,6 +27,7 @@ class Traceparent(BaseModel):
     @field_validator("version", "flags")
     @classmethod
     def _two_hex(cls, v: str, info: ValidationInfo) -> str:
+        assert info.field_name is not None  # always set for a field-level validator
         return _check_hex(v, 2, info.field_name, nonzero=False)
 
     @field_validator("trace_id")
