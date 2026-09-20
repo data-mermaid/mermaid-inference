@@ -76,7 +76,31 @@ function pulls torch, and torch cannot initialise twice in a single process, so
 collecting both trees at once fails by design. Bare `uv run pytest` at the repo
 root is scoped to the contract tests.
 
-## CI / image publishing
+## CI
+
+### Pull request checks
+
+Three workflows run on every pull request:
+
+- **`lint.yml`** — ruff (lint + format check), run separately inside each
+  package because `[tool.ruff]` is configured per package rather than at the
+  workspace root; `basedpyright` in strict mode from the repo root; and a
+  `uv lock --check` step that fails if `uv.lock` is out of sync with either
+  package's `pyproject.toml`.
+- **`tests.yml`** — the `contract` and `function` suites from "Development"
+  above, split into the same two jobs for the same reason they run as
+  separate invocations locally: the function suite pulls in torch, and torch
+  cannot initialise twice in one process.
+- **`secure-actions.yml`** — actionlint and zizmor over the workflow YAML
+  itself.
+
+A `uv lock --check` failure on a pull request with no local dependency changes indicates that `mermaid-classifier` changed its own dependencies—this repo's `uv.lock` embeds its full dependency metadata because `pyspacer-function` depends on `mermaid-classifier` as an editable path dependency to a sibling checkout. The check is the only drift detector; `tests.yml` does not run it, so without it the function suite would pass against an environment that does not match the lock. Re-run `uv lock` in this repo and commit the result.
+
+To keep it green: run `ruff check .` / `ruff format .` inside each package,
+and `uv sync --group lint && uv run --no-sync basedpyright` from the repo
+root, before opening a PR; re-run `uv lock` whenever it falls out of sync.
+
+### Image publishing
 
 The `.github/workflows/build-push.yml` workflow is a manual `workflow_dispatch` that builds and pushes the `pyspacer-function` Lambda image to ECR (`mermaid-inference-pyspacer`). It takes four inputs:
 
