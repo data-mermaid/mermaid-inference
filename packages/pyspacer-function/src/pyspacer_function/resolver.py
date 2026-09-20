@@ -3,10 +3,12 @@ the deploy-pinned serving format: "graph" is the efficientnet.pt / model.pt /
 model.json triple, "legacy" the efficientnet_weights.pt / classifier.pkl pair.
 Two backends: S3 (prod, caches to /tmp/<version>/) and Local (dev/test). No
 torch/pyspacer here; boto3 is imported lazily."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pyspacer_function import config
 
@@ -78,7 +80,7 @@ class S3Backend:
         self,
         bucket: str,
         cache_root: Path = Path("/tmp"),
-        client=None,
+        client: Any = None,
         model_format: str = "graph",
     ):
         self.bucket = bucket
@@ -86,7 +88,7 @@ class S3Backend:
         self._client = client
         self.model_format = model_format
 
-    def _s3(self):
+    def _s3(self) -> Any:
         if self._client is None:
             import boto3  # lazy: keep module import light
 
@@ -99,9 +101,7 @@ class S3Backend:
             dest = dest_dir / name
             if not dest.exists():
                 dest_dir.mkdir(parents=True, exist_ok=True)
-                self._s3().download_file(
-                    self.bucket, f"classifier/{version}/{name}", str(dest)
-                )
+                self._s3().download_file(self.bucket, f"classifier/{version}/{name}", str(dest))
         return _MODEL_FILES[self.model_format].in_dir(dest_dir)
 
 
@@ -116,6 +116,5 @@ def get_resolver():
     if local:
         return LocalBackend(Path(local), model_format=model_format)
     raise RuntimeError(
-        "No model source configured: set CONFIG_BUCKET (prod) or "
-        "LOCAL_MODELS_DIR (dev)."
+        "No model source configured: set CONFIG_BUCKET (prod) or LOCAL_MODELS_DIR (dev)."
     )

@@ -1,6 +1,7 @@
 """Shared fixtures: a tiny TorchScript model.pt + manifest, a real prefit
 classifier.pkl for the legacy format, and a fake extractor — so classify/handler
 tests need neither real EfficientNet weights nor S3."""
+
 import json
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
@@ -105,15 +106,11 @@ class FakeExtractor(EfficientNetExtractor):
     """
 
     def __init__(self, vectors: dict[tuple[int, int], list[float]]):
-        super().__init__(
-            data_locations={"weights": DataLocation("filesystem", "unused.pt")}
-        )
+        super().__init__(data_locations={"weights": DataLocation("filesystem", "unused.pt")})
         self.vectors = vectors
 
     def __call__(self, image, rowcols):
-        pfs = [
-            PointFeatures(row=r, col=c, data=self.vectors[(r, c)]) for r, c in rowcols
-        ]
+        pfs = [PointFeatures(row=r, col=c, data=self.vectors[(r, c)]) for r, c in rowcols]
         feats = ImageFeatures(
             point_features=pfs,
             valid_rowcol=True,

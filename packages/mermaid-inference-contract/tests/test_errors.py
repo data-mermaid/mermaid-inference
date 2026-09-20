@@ -32,6 +32,9 @@ def test_error_envelope_carries_optional_contract_version():
 
     env = ErrorEnvelope(error_code=ErrorCode.PROCESSING_ERROR, message="x")
     assert env.contract_version is None
-    assert ErrorEnvelope(
-        error_code=ErrorCode.PROCESSING_ERROR, message="x", contract_version="0.4.0"
-    ).contract_version == "0.4.0"
+    assert (
+        ErrorEnvelope(
+            error_code=ErrorCode.PROCESSING_ERROR, message="x", contract_version="0.4.0"
+        ).contract_version
+        == "0.4.0"
+    )

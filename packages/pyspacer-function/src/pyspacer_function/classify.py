@@ -13,14 +13,17 @@ confidence and raises nothing, so this is the only place that failure is
 visible. An artifact cut before that block existed is served with a warning
 rather than refused, so adding the check does not retire the versions already
 released."""
+
 from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from operator import itemgetter
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
+from spacer.data_classes import ImageFeatures
 from spacer.extractors import EfficientNetExtractor
 from spacer.messages import DataLocation
 from spacer.storage import load_classifier, load_image
@@ -29,6 +32,9 @@ from spacer.task_utils import check_extract_inputs
 from mermaid_inference_contract import PointResult, PointScore
 
 from pyspacer_function.resolver import LegacyModelFiles, ModelFiles
+
+if TYPE_CHECKING:
+    from mermaid_classifier.pyspacer.inference import ExtractorSpec
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +46,11 @@ class ClassifyOutcome(NamedTuple):
 
 
 def classify(
-    image_loc,
+    image_loc: DataLocation,
     files: ModelFiles | LegacyModelFiles,
-    points,
+    points: Sequence[Sequence[int]],
     *,
-    extractor=None,
+    extractor: EfficientNetExtractor | None = None,
     feature_output_loc: DataLocation | None = None,
 ) -> ClassifyOutcome:
     """Classify each point. When feature_output_loc is given, the extracted
@@ -55,18 +61,16 @@ def classify(
     spec = _recorded_extractor(files)
 
     image = load_image(image_loc)
-    check_extract_inputs(image, points, image_loc.key)
+    check_extract_inputs(image, points, image_loc.key)  # pyright: ignore[reportArgumentType]  # pyspacer stubs use PIL.Image module, not PIL.Image.Image
 
     if extractor is None:
         extractor = EfficientNetExtractor(
-            data_locations=dict(
-                weights=DataLocation("filesystem", str(files.efficientnet_pt))
-            )
+            data_locations=dict(weights=DataLocation("filesystem", str(files.efficientnet_pt)))
         )
     if spec is not None:
         spec.check_extractor(extractor)
 
-    features, _ = extractor(image, points)
+    features, _ = extractor(image, points)  # pyright: ignore[reportArgumentType]  # same PIL stub issue
     if spec is not None:
         spec.check_feature_dim(features.feature_dim)
 
@@ -107,7 +111,7 @@ def classify(
     )
 
 
-def _recorded_extractor(files: ModelFiles | LegacyModelFiles):
+def _recorded_extractor(files: ModelFiles | LegacyModelFiles) -> ExtractorSpec | None:
     """The extractor model.json records, or None when nothing records one.
 
     None on the legacy lane, whose pickle carries no manifest, and on a graph
@@ -138,7 +142,9 @@ def _recorded_extractor(files: ModelFiles | LegacyModelFiles):
     return ExtractorSpec.from_manifest(manifest)
 
 
-def _predict_graph(files: ModelFiles, features, points):
+def _predict_graph(
+    files: ModelFiles, features: ImageFeatures, points: list[tuple[int, int]]
+) -> tuple[list[str], list[list[float]]]:
     """Batched scoring through the portable artifact's TorchScript head."""
     # mermaid-classifier is absent from the legacy image, so this loader is
     # imported inside the branch that uses it.
@@ -149,14 +155,18 @@ def _predict_graph(files: ModelFiles, features, points):
     return list(predictor.classes), predictor.predict_proba(batch).tolist()
 
 
-def _predict_legacy(files: LegacyModelFiles, features, points):
+def _predict_legacy(
+    files: LegacyModelFiles, features: ImageFeatures, points: list[tuple[int, int]]
+) -> tuple[list[str], list[list[float]]]:
     """One predict_proba per point over its own (1, 1280) float64 row, as
     spacer.tasks.classify_features does: batch size changes BLAS reduction
     order, and these scores must reproduce the in-process baseline to within
     1e-5. load_classifier is lru_cached, so warm invocations reuse the
     classifier."""
     clf = load_classifier(DataLocation("filesystem", str(files.classifier_pkl)))
-    proba = [
-        clf.predict_proba(features.get_array((row, col))).tolist()[0] for row, col in points
-    ]
-    return [str(c) for c in clf.classes_], proba
+    proba = [clf.predict_proba(features.get_array((row, col))).tolist()[0] for row, col in points]
+    classes = clf.classes_
+    assert (
+        classes is not None
+    )  # a stored classifier is always fitted (store_classifier requires it)
+    return [str(c) for c in classes], proba

@@ -13,6 +13,7 @@ refuses every SageMaker-trained artifact. The two architectures were never
 going to be bit-identical regardless — what holds the numerics is the
 export-time parity gate and PARITY_PROVEN_SKLEARN, the same reasoning
 legacy_pins.txt records for its own pins."""
+
 from __future__ import annotations
 
 import json

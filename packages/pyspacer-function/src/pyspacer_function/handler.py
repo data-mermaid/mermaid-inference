@@ -2,8 +2,10 @@
 contract + the (torch-free) resolver/config — the torch/pyspacer backend and
 the classify core are imported lazily inside handler() so the multi-second
 import stays out of Lambda's 10 s INIT phase."""
+
 import logging
 import os
+from typing import Any
 
 # /tmp is the only writable path on Lambda's read-only filesystem.
 for _var in ("SPACER_EXTRACTORS_CACHE_DIR", "TORCH_HOME", "HOME", "MPLCONFIGDIR"):
@@ -20,16 +22,16 @@ from mermaid_inference_contract import (
 )
 
 from pyspacer_function.config import classifier_format, classifier_version, num_threads
-from pyspacer_function.resolver import get_resolver
+from pyspacer_function.resolver import ModelFiles, get_resolver
 
 logger = logging.getLogger(__name__)
 
 
-def _event_traceparent(event) -> str | None:
+def _event_traceparent(event: dict[str, Any] | str | bytes) -> str | None:
     return event.get("traceparent") if isinstance(event, dict) else None
 
 
-def handler(event, context=None) -> dict:
+def handler(event: dict[str, Any] | str | bytes, context: object | None = None) -> dict[str, Any]:
     logger.info("pyspacer classify request", extra={"traceparent": _event_traceparent(event)})
     try:
         req = parse_classify_request(event)
@@ -61,6 +63,7 @@ def handler(event, context=None) -> dict:
         if classifier_format() == "legacy":
             check_legacy_pins()
         else:
+            assert isinstance(files, ModelFiles)  # the graph format always resolves ModelFiles
             check_compatibility(files.model_json)
         image_loc = DataLocation("s3", key=req.image.key, bucket_name=req.image.bucket)
         feature_output_loc = None

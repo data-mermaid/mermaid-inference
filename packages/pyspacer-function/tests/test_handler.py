@@ -175,9 +175,7 @@ def test_handler_tolerated_store_failure_logs_only_the_feature_store_marker(
     assert abs(sum(s["score"] for s in scores) - 1.0) < 1e-5
     assert "[classify.feature_store_error]" in caplog.text
     assert "[classify.processing_error]" not in caplog.text
-    store_errors = [
-        r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()
-    ]
+    store_errors = [r for r in caplog.records if "[classify.feature_store_error]" in r.getMessage()]
     assert len(store_errors) == 1
     assert "error=ClientError" in store_errors[0].getMessage()
 
@@ -216,7 +214,9 @@ def test_handler_validation_error_on_bad_payload():
 
 
 def test_handler_validation_error_echoes_raw_traceparent():
-    out = handler({"classifier_type": "pyspacer", "traceparent": "tp-val"})  # missing required fields
+    out = handler(
+        {"classifier_type": "pyspacer", "traceparent": "tp-val"}
+    )  # missing required fields
     assert out["error_code"] == "validation_error"
     assert out["traceparent"] == "tp-val"
 
