@@ -40,7 +40,7 @@ jobs:
             objects.githubusercontent.com:443
 
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -102,13 +102,13 @@ jobs:
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
       - name: Checkout mermaid-inference
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: mermaid-inference
           persist-credentials: false
 
       - name: Checkout mermaid-classifier (sibling dependency)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: data-mermaid/mermaid-classifier
           ref: ${{ steps.cls.outputs.ref }}

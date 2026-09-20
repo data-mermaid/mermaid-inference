@@ -57,7 +57,7 @@ jobs:
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
       - name: Checkout mermaid-inference
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: mermaid-inference
           persist-credentials: false
@@ -65,7 +65,7 @@ jobs:
       # basedpyright must resolve `mermaid_classifier` (pyspacer-function's
       # editable path dep at ../../../mermaid-classifier) to type-check it.
       - name: Checkout mermaid-classifier (sibling dependency)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: data-mermaid/mermaid-classifier
           ref: ${{ steps.cls.outputs.ref }}
