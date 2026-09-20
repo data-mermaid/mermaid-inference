@@ -70,6 +70,10 @@ def classify(
             features.store(feature_output_loc)
             feature_stored = True
         except Exception as exc:
+            # Stable marker for the CloudWatch Logs metric filter + alarm
+            # mermaid-{env}-inference-feature-store-errors: the write failure is
+            # swallowed and reported as success, so it never increments Lambda Errors.
+            # Keep token in sync with mermaid-api InferenceStack.
             logger.exception(
                 "[classify.feature_store_error] failed to store feature vector"
                 " error=%s bucket=%r key=%r",
