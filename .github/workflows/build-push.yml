@@ -29,10 +29,9 @@ jobs:
   build-push:
     runs-on: ubuntu-24.04-arm  # native arm64 build (image is FROM linux/arm64)
     steps:
-      # No `persist-credentials: false` here (unlike other workflows in this repo):
-      # the "Push release git tag" step below pushes with the credential this
-      # checkout persists. Do not add it.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Compute image tag
         id: tag
@@ -101,12 +100,15 @@ jobs:
       - name: Push release git tag (idempotent, after a successful build)
         env:
           IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Lightweight tag: re-pushing the same tag at the same commit is a no-op
           # ("Everything up-to-date"); a different commit is rejected. No git identity
           # is required (only annotated tags need one).
           git tag "$IMAGE_TAG" 2>/dev/null || true
-          git push origin "refs/tags/$IMAGE_TAG"
+          git push \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/$IMAGE_TAG"
 
       - name: Push image (immutable — last, after the tag exists)
         env:
