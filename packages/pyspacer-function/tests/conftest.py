@@ -11,6 +11,7 @@ import torch
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.neural_network import MLPClassifier
 from spacer.data_classes import ImageFeatures, PointFeatures
+from spacer.extractors import EfficientNetExtractor
 from spacer.messages import DataLocation
 from spacer.storage import store_classifier
 
@@ -18,6 +19,15 @@ from pyspacer_function.resolver import LegacyModelFiles, ModelFiles
 
 _IN_DIM = 4
 _CLASSES = ["a::", "b::", "c::"]
+# What the manifest records as having produced the training features. classify
+# checks the live extractor against this, so FakeExtractor has to satisfy it.
+_EXTRACTOR = {
+    "class_path": "spacer.extractors.efficientnet.EfficientNetExtractor",
+    "crop_size": EfficientNetExtractor.CROP_SIZE,
+    "feature_dim": _IN_DIM,
+    "weights_uri": "s3://mermaid-config/classifier/test/efficientnet.pt",
+    "weights_sha256": "a" * 64,
+}
 # Beta's labels are ba_uuid::gf_uuid, and are read off the pickled classifier —
 # distinct from _CLASSES so a legacy result cannot pass on graph labels.
 _LEGACY_CLASSES = ["1111::", "2222::3333", "4444::"]
@@ -49,7 +59,8 @@ def write_model_files(dest: Path) -> ModelFiles:
                 "task": "pyspacer_mlp_classifier",
                 "classes": _CLASSES,
                 "input_dim": _IN_DIM,
-                "config": {"patch_size": 224},
+                "config": {"patch_size": _EXTRACTOR["crop_size"]},
+                "feature_extraction": _EXTRACTOR,
                 "trained_with": {
                     "torch": torch.__version__,
                     "sklearn": _pkg_version("scikit-learn"),
@@ -82,11 +93,21 @@ def write_legacy_model_files(dest: Path) -> LegacyModelFiles:
     return LegacyModelFiles.in_dir(dest)
 
 
-class FakeExtractor:
+class FakeExtractor(EfficientNetExtractor):
     """Returns precomputed feature vectors keyed by (row, col), mimicking
-    EfficientNetExtractor's (ImageFeatures, return_msg) signature."""
+    EfficientNetExtractor's (ImageFeatures, return_msg) signature.
+
+    It subclasses the real extractor rather than standing beside it: classify
+    checks the extractor's class and crop against the manifest, so a double
+    that did not carry the real geometry would pass a check the real one has
+    to. Constructing it loads no weights — the base __init__ only records
+    where they are, and __call__ never reaches them.
+    """
 
     def __init__(self, vectors: dict[tuple[int, int], list[float]]):
+        super().__init__(
+            data_locations={"weights": DataLocation("filesystem", "unused.pt")}
+        )
         self.vectors = vectors
 
     def __call__(self, image, rowcols):

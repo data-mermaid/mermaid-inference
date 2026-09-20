@@ -4,9 +4,16 @@ branch only on the predict half — "graph" runs the portable TorchScript head v
 load_predictor, "legacy" runs the pickled scikit-learn classifier through
 pyspacer's own loader. Takes pyspacer DataLocations, so it runs over
 s3/filesystem/memory storage identically — which is what makes it testable
-without AWS."""
+without AWS.
+
+A head is fitted to feature vectors, so on the graph lane the extractor is
+checked against the one model.json records before its output reaches the head.
+Extracting with a different geometry produces different labels at comparable
+confidence and raises nothing, so this is the only place that failure is
+visible."""
 from __future__ import annotations
 
+import json
 import logging
 from operator import itemgetter
 from typing import NamedTuple
@@ -43,6 +50,7 @@ def classify(
     reads that artifact back, so a failed write is logged and reported through
     feature_stored rather than raised."""
     points = [(int(r), int(c)) for r, c in points]
+    spec = _recorded_extractor(files)
 
     image = load_image(image_loc)
     check_extract_inputs(image, points, image_loc.key)
@@ -53,7 +61,12 @@ def classify(
                 weights=DataLocation("filesystem", str(files.efficientnet_pt))
             )
         )
+    if spec is not None:
+        spec.check_extractor(extractor)
+
     features, _ = extractor(image, points)
+    if spec is not None:
+        spec.check_feature_dim(features.feature_dim)
 
     if isinstance(files, LegacyModelFiles):
         labels, proba = _predict_legacy(files, features, points)
@@ -90,6 +103,25 @@ def classify(
     return ClassifyOutcome(
         point_results=results, valid_rowcol=features.valid_rowcol, feature_stored=feature_stored
     )
+
+
+def _recorded_extractor(files: ModelFiles | LegacyModelFiles):
+    """The extractor model.json records, or None on the legacy lane.
+
+    ManifestError when a graph artifact omits the block: one cut before this
+    contract existed cannot say what produced its training features, and
+    serving it would be the guess the contract exists to remove. The legacy
+    pickle carries no manifest at all, so there is nothing to check.
+
+    Imported inside the branch, as with load_predictor below: the legacy image
+    installs no mermaid-classifier.
+    """
+    if not isinstance(files, ModelFiles):
+        return None
+
+    from mermaid_classifier.pyspacer.inference import ExtractorSpec
+
+    return ExtractorSpec.from_manifest(json.loads(files.model_json.read_text()))
 
 
 def _predict_graph(files: ModelFiles, features, points):
